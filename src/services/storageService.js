@@ -192,6 +192,14 @@ export const storageService = {
     return writeDb(db);
   },
 
+  updateTask(taskId, updates) {
+    const db = readDb();
+    db.tasks = (db.tasks || []).map((t) =>
+      t.id === taskId ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
+    );
+    return writeDb(db);
+  },
+
   toggleTaskDone(taskId) {
     const db = readDb();
     db.tasks = (db.tasks || []).map((t) =>

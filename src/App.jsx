@@ -263,6 +263,12 @@ export default function App() {
     addToast('Pendiente guardado correctamente');
   };
 
+  const handleUpdateTask = (id, updates) => {
+    const updated = storageService.updateTask(id, updates);
+    setDb(updated);
+    addToast('Pendiente actualizado correctamente');
+  };
+
   const handleToggleTaskDone = (id) => {
     const updated = storageService.toggleTaskDone(id);
     setDb(updated);
@@ -421,6 +427,7 @@ export default function App() {
                 preselectedEvent={taskEventIntent}
                 onClearPreselectedEvent={() => setTaskEventIntent(null)}
                 onAddTask={handleAddTask}
+                onUpdateTask={handleUpdateTask}
                 onToggleTaskDone={handleToggleTaskDone}
                 onDeleteTask={handleDeleteTask}
                 onToast={addToast}

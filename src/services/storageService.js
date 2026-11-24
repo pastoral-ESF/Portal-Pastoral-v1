@@ -179,6 +179,22 @@ export const storageService = {
     return writeDb(db);
   },
 
+  saveCartaPlantaFisica(cartaId, plantaFisica) {
+    const db = readDb();
+    db.cartasDescriptivas = db.cartasDescriptivas.map((c) =>
+      c.id === cartaId
+        ? {
+            ...c,
+            plantaFisica: {
+              ...plantaFisica,
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        : c
+    );
+    return writeDb(db);
+  },
+
   // --- PENDIENTES (TAREAS POR USUARIO / PLANTEL / PASTORAL GENERAL) ---
   addTask(task) {
     const db = readDb();

@@ -14,7 +14,9 @@ import {
   BookMarked,
   ExternalLink,
   CheckCircle2,
+  Wrench,
 } from 'lucide-react';
+import { PlantaFisicaModal } from './PlantaFisicaModal';
 import {
   CARTA_PLANTEL_OPTIONS,
   ACTIVITY_STATUSES,
@@ -65,11 +67,14 @@ export function CartaPlannerView({
   onClearInitialEdit,
   onSaveCarta,
   onApproveCarta,
+  onSavePlantaFisica,
+  onPrintPlantaFisica,
   onDeleteCarta,
   onPrintCarta,
   onOpenPepsalTab,
 }) {
   const [mode, setMode] = useState(initialEditingCarta ? 'form' : 'list'); // 'list' | 'form'
+  const [plantaFisicaCarta, setPlantaFisicaCarta] = useState(null);
   const [form, setForm] = useState(() => {
     if (initialEditingCarta && initialEditingCarta !== 'NEW' && !initialEditingCarta.presetPepsalAreaId) {
       return structuredClone(initialEditingCarta);
@@ -310,6 +315,19 @@ export function CartaPlannerView({
                     )}
                     <button
                       type="button"
+                      onClick={() => setPlantaFisicaCarta(c)}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
+                        c.plantaFisica
+                          ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
+                          : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-pastoral'
+                      }`}
+                      title="Abrir formulario de Solicitud de eventos Planta Física"
+                    >
+                      <Wrench className="h-3.5 w-3.5" />
+                      <span>{c.plantaFisica ? 'Planta Física ✓' : 'Planta Física'}</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => onPrintCarta(c)}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-pastoral hover:bg-pastoral-deep text-white px-3 py-1.5 text-xs font-bold transition-colors"
                     >
@@ -336,6 +354,19 @@ export function CartaPlannerView({
             );
           })}
         </div>
+
+        <PlantaFisicaModal
+          open={Boolean(plantaFisicaCarta)}
+          carta={plantaFisicaCarta}
+          restrictedPlantel={restrictedPlantel}
+          onClose={() => setPlantaFisicaCarta(null)}
+          onSave={(cartaId, solicitud) => {
+            if (onSavePlantaFisica) onSavePlantaFisica(cartaId, solicitud);
+          }}
+          onPrint={(solicitud) => {
+            if (onPrintPlantaFisica) onPrintPlantaFisica(solicitud);
+          }}
+        />
       </div>
     );
   }

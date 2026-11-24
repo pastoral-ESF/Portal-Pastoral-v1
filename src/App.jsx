@@ -24,6 +24,7 @@ import { TasksView } from './components/backstage/TasksView';
 import { CartaPlannerView } from './components/backstage/CartaPlannerView';
 import { PepsalView } from './components/backstage/PepsalView';
 import { PrintableCarta } from './components/backstage/PrintableCarta';
+import { PrintablePlantaFisica } from './components/backstage/PrintablePlantaFisica';
 import { CalendarManagerView } from './components/backstage/CalendarManagerView';
 import { EvaluationDashboardView } from './components/backstage/EvaluationDashboardView';
 import { MjsRepositoryView } from './components/backstage/MjsRepositoryView';
@@ -48,7 +49,7 @@ export default function App() {
   const [backstageTab, setBackstageTab] = useState('dashboard');
   const [editingCartaIntent, setEditingCartaIntent] = useState(null);
   const [taskEventIntent, setTaskEventIntent] = useState(null);
-  const [printingCarta, setPrintingCarta] = useState(null);
+  const [printJob, setPrintJob] = useState(null); // { type: 'carta' | 'plantaFisica', data }
   const [toasts, setToasts] = useState([]);
 
   const backstageRole = currentUser?.role || null;
@@ -195,9 +196,16 @@ export default function App() {
     addToast('Sesión cerrada correctamente', 'info');
   };
 
-  // --- Impresión de Carta Descriptiva ---
+  // --- Impresión (Carta Descriptiva o Solicitud de Planta Física) ---
   const handlePrintCarta = (carta) => {
-    setPrintingCarta(carta);
+    setPrintJob({ type: 'carta', data: carta });
+    setTimeout(() => {
+      window.print();
+    }, 120);
+  };
+
+  const handlePrintPlantaFisica = (solicitud) => {
+    setPrintJob({ type: 'plantaFisica', data: solicitud });
     setTimeout(() => {
       window.print();
     }, 120);
@@ -255,6 +263,12 @@ export default function App() {
     const updated = storageService.approveCarta(id, approver);
     setDb(updated);
     addToast(`Carta Descriptiva aprobada por ${approver}`);
+  };
+
+  const handleSavePlantaFisica = (cartaId, plantaFisica) => {
+    const updated = storageService.saveCartaPlantaFisica(cartaId, plantaFisica);
+    setDb(updated);
+    addToast('Solicitud de Planta Física guardada correctamente');
   };
 
   const handleAddTask = (task) => {
@@ -376,8 +390,9 @@ export default function App() {
 
   return (
     <>
-      {/* Documento limpio solo visible al imprimir Carta Descriptiva */}
-      <PrintableCarta carta={printingCarta} />
+      {/* Documento limpio solo visible al imprimir (Carta Descriptiva o Planta Física) */}
+      {printJob?.type === 'carta' && <PrintableCarta carta={printJob.data} />}
+      {printJob?.type === 'plantaFisica' && <PrintablePlantaFisica solicitud={printJob.data} />}
 
       {/* Interfaz principal oculta durante @media print */}
       <div className="no-print min-h-screen">
@@ -443,6 +458,8 @@ export default function App() {
                 onClearInitialEdit={() => setEditingCartaIntent(null)}
                 onSaveCarta={handleSaveCarta}
                 onApproveCarta={isFullAdmin ? handleApproveCarta : null}
+                onSavePlantaFisica={handleSavePlantaFisica}
+                onPrintPlantaFisica={handlePrintPlantaFisica}
                 onDeleteCarta={handleDeleteCarta}
                 onPrintCarta={handlePrintCarta}
                 onOpenPepsalTab={() => setBackstageTab('pepsal')}

@@ -1,5 +1,5 @@
 // Service Worker ligero (Network-First) para habilitar instalación PWA en PC, Android y tablets
-const CACHE_NAME = 'pastoral-esfer-pwa-v1';
+const CACHE_NAME = 'pastoral-esfer-pwa-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

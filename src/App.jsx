@@ -332,8 +332,12 @@ export default function App() {
   };
 
   const hasPendingNotionImport = useMemo(() => {
-    const existingIds = new Set((db.quickEvents || []).map((e) => e.id));
-    return NOTION_CALENDAR_2026_2027.some((e) => !existingIds.has(e.id));
+    const quick = db.quickEvents || [];
+    const loadedNotionCount = quick.filter((e) =>
+      String(e.id || '').startsWith('notion-2627-')
+    ).length;
+    // Solo ofrecer la carga inicial si aún no existe ningún evento de Notion en Firestore
+    return loadedNotionCount === 0;
   }, [db.quickEvents]);
 
   const handleAddNotice = (notice) => {

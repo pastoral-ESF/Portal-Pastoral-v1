@@ -1,11 +1,8 @@
-// Service Worker ligero (Network-First) para habilitar instalación PWA en PC, Android y tablets
-const CACHE_NAME = 'pastoral-esfer-pwa-v2';
+// Service Worker ligero (Network-First sin caché rígida para HTML) para PWA
+const CACHE_NAME = 'pastoral-esfer-pwa-v3';
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(['./', './index.html']).catch(() => {}))
-  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -24,6 +21,22 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   // No interceptar llamadas a Firebase / APIs externas
   if (url.origin !== self.location.origin) return;
+
+  // Para navegaciones HTML, siempre pedir versión fresca al servidor
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-cache' })
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(event.request)

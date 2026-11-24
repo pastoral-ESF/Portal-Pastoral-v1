@@ -14,6 +14,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { LogoImage } from '../common/LogoImage';
+import { InstallPwaButton } from '../common/InstallPwaButton';
 import { ROLES, ROLE_LABELS } from '../../constants/config';
 
 const PASTORAL_TEAM = [ROLES.SDB, ROLES.COORDINADOR, ROLES.AUXILIAR];
@@ -137,6 +138,9 @@ export function BackstageShell({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="hidden md:block">
+              <InstallPwaButton variant="dark" />
+            </div>
             <button
               type="button"
               onClick={onExitToPublic}

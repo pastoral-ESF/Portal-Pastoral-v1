@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { LogoImage } from '../common/LogoImage';
+import { InstallPwaButton } from '../common/InstallPwaButton';
 import { ROLES } from '../../constants/config';
 import { authService, DEMO_USERS } from '../../services/authService';
 
@@ -236,8 +237,8 @@ export function BackstageGate({ onAuthenticated, onCancel }) {
           )}
         </div>
 
-        {/* Acceso secundario al Visor Público */}
-        <div className="text-center">
+        {/* Acceso secundario al Visor Público e Instalación PWA */}
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
           <button
             type="button"
             onClick={onCancel}
@@ -246,6 +247,7 @@ export function BackstageGate({ onAuthenticated, onCancel }) {
             <Eye className="h-4 w-4 text-pastoral-cyan" />
             <span>Abrir Visor Público (Comunidad y Familias)</span>
           </button>
+          <InstallPwaButton variant="dark" />
         </div>
       </div>
     </div>

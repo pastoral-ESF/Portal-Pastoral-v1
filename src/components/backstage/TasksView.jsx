@@ -57,6 +57,12 @@ const PRIORITY_STYLES = {
   Baja: 'bg-slate-100 text-slate-600',
 };
 
+const PRIORITY_WEIGHT = {
+  Alta: 1,
+  Media: 2,
+  Baja: 3,
+};
+
 export function TasksView({
   tasks = [],
   currentUser,
@@ -90,6 +96,7 @@ export function TasksView({
 
   const [scopeFilter, setScopeFilter] = useState('todos'); // 'todos' | 'personal' | 'plantel' | 'general' | 'asignados'
   const [adminPlantelFilter, setAdminPlantelFilter] = useState('Todos');
+  const [sortBy, setSortBy] = useState('dueDate'); // 'dueDate' | 'priority' | 'recent'
   const [showCompleted, setShowCompleted] = useState(true);
   const [teamUsers, setTeamUsers] = useState([]);
   const [editingTaskId, setEditingTaskId] = useState(null);
@@ -165,7 +172,7 @@ export function TasksView({
   }, [tasks, currentUser, userPlantel, isFullAdmin]);
 
   const filteredTasks = useMemo(() => {
-    return visibleTasks
+    const list = visibleTasks
       .filter((t) => {
         if (scopeFilter === 'asignados') {
           return Boolean(t.assignedToUid || t.assignedToEmail);
@@ -177,7 +184,34 @@ export function TasksView({
         return (t.plantel || 'General') === adminPlantelFilter;
       })
       .filter((t) => (showCompleted ? true : !t.done));
-  }, [visibleTasks, scopeFilter, adminPlantelFilter, isFullAdmin, showCompleted]);
+
+    return [...list].sort((a, b) => {
+      // 1. Siempre pendientes activos arriba y completados abajo
+      if (Boolean(a.done) !== Boolean(b.done)) {
+        return a.done ? 1 : -1;
+      }
+
+      if (sortBy === 'priority') {
+        const pw = (PRIORITY_WEIGHT[a.priority] || 2) - (PRIORITY_WEIGHT[b.priority] || 2);
+        if (pw !== 0) return pw;
+        const da = a.dueDate || '9999-12-31';
+        const dbDate = b.dueDate || '9999-12-31';
+        return da.localeCompare(dbDate);
+      }
+
+      if (sortBy === 'recent') {
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      }
+
+      // Predeterminado: 'dueDate' (vencidos y fecha límite más próxima primero)
+      const da = a.dueDate || '9999-12-31';
+      const dbDate = b.dueDate || '9999-12-31';
+      if (da !== dbDate) return da.localeCompare(dbDate);
+      const pw = (PRIORITY_WEIGHT[a.priority] || 2) - (PRIORITY_WEIGHT[b.priority] || 2);
+      if (pw !== 0) return pw;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+  }, [visibleTasks, scopeFilter, adminPlantelFilter, isFullAdmin, showCompleted, sortBy]);
 
   // Agrupación por plantel (solo para SDB / Coordinador)
   const adminGroupedByPlantel = useMemo(() => {
@@ -702,15 +736,28 @@ export function TasksView({
               ))}
             </div>
 
-            <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showCompleted}
-                onChange={(e) => setShowCompleted(e.target.checked)}
-                className="rounded border-slate-300 text-pastoral focus:ring-pastoral"
-              />
-              <span>Mostrar completados</span>
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Ordenar pendientes"
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-pastoral"
+              >
+                <option value="dueDate">Orden: Fecha más próxima</option>
+                <option value="priority">Orden: Prioridad (Alta → Baja)</option>
+                <option value="recent">Orden: Más recientes</option>
+              </select>
+
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showCompleted}
+                  onChange={(e) => setShowCompleted(e.target.checked)}
+                  className="rounded border-slate-300 text-pastoral focus:ring-pastoral"
+                />
+                <span>Mostrar completados</span>
+              </label>
+            </div>
           </div>
 
           {filteredTasks.length === 0 ? (

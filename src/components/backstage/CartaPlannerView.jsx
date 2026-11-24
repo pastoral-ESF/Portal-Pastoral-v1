@@ -59,6 +59,47 @@ function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'G
   };
 }
 
+function buildFormFromIntent(intent, restrictedPlantel) {
+  if (!intent || intent === 'NEW') {
+    return createBlankCarta('PEPSAL-FE', restrictedPlantel || 'Glandorff');
+  }
+  if (intent.presetPepsalAreaId) {
+    return createBlankCarta(intent.presetPepsalAreaId, restrictedPlantel || 'Glandorff');
+  }
+  if (intent.presetFromEvent) {
+    const ev = intent.presetFromEvent;
+    const base = createBlankCarta(
+      'PEPSAL-FE',
+      restrictedPlantel || ev.plantel || 'Glandorff'
+    );
+    return {
+      ...base,
+      name: ev.title || '',
+      date: ev.date || base.date,
+      startTime: ev.startTime || '09:00',
+      endTime: ev.endTime || '12:00',
+      location: ev.location || '',
+      objective: ev.description || '',
+      visibility: ev.visibility || 'interno',
+      category: ev.category || 'Pastoral',
+      linkedQuickEventId: ev.id,
+    };
+  }
+  const cloned = structuredClone(intent);
+  return {
+    ...createBlankCarta('PEPSAL-FE', restrictedPlantel || 'Glandorff'),
+    ...cloned,
+    schedule:
+      Array.isArray(cloned.schedule) && cloned.schedule.length > 0
+        ? cloned.schedule
+        : [{ id: `sch-${Date.now()}-1`, time: '09:00 - 09:30', what: '', where: '', responsible: '' }],
+    commissions:
+      Array.isArray(cloned.commissions) && cloned.commissions.length > 0
+        ? cloned.commissions
+        : DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` })),
+  };
+}
+
 export function CartaPlannerView({
   cartas,
   pepsalDoc,
@@ -75,45 +116,13 @@ export function CartaPlannerView({
 }) {
   const [mode, setMode] = useState(initialEditingCarta ? 'form' : 'list'); // 'list' | 'form'
   const [plantaFisicaCarta, setPlantaFisicaCarta] = useState(null);
-  const [form, setForm] = useState(() => {
-    if (initialEditingCarta && initialEditingCarta !== 'NEW' && !initialEditingCarta.presetPepsalAreaId) {
-      return structuredClone(initialEditingCarta);
-    }
-    return createBlankCarta(
-      initialEditingCarta?.presetPepsalAreaId || 'PEPSAL-FE',
-      restrictedPlantel || 'Glandorff'
-    );
-  });
+  const [form, setForm] = useState(() =>
+    buildFormFromIntent(initialEditingCarta, restrictedPlantel)
+  );
 
   useEffect(() => {
     if (initialEditingCarta) {
-      if (initialEditingCarta === 'NEW') {
-        setForm(createBlankCarta('PEPSAL-FE', restrictedPlantel || 'Glandorff'));
-      } else if (initialEditingCarta.presetPepsalAreaId) {
-        setForm(
-          createBlankCarta(initialEditingCarta.presetPepsalAreaId, restrictedPlantel || 'Glandorff')
-        );
-      } else if (initialEditingCarta.presetFromEvent) {
-        const ev = initialEditingCarta.presetFromEvent;
-        const base = createBlankCarta(
-          'PEPSAL-FE',
-          restrictedPlantel || ev.plantel || 'Glandorff'
-        );
-        setForm({
-          ...base,
-          name: ev.title || '',
-          date: ev.date || base.date,
-          startTime: ev.startTime || '09:00',
-          endTime: ev.endTime || '12:00',
-          location: ev.location || '',
-          objective: ev.description || '',
-          visibility: ev.visibility || 'interno',
-          category: ev.category || 'Pastoral',
-          linkedQuickEventId: ev.id,
-        });
-      } else {
-        setForm(structuredClone(initialEditingCarta));
-      }
+      setForm(buildFormFromIntent(initialEditingCarta, restrictedPlantel));
       setMode('form');
       if (onClearInitialEdit) onClearInitialEdit();
     }

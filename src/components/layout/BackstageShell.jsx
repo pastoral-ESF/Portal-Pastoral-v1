@@ -51,13 +51,12 @@ export const BACKSTAGE_TABS = [
     icon: CalendarDays,
     roles: PASTORAL_TEAM,
   },
-  // Desactivado temporalmente mientras se define el formulario de evaluación ESA para participantes
-  // {
-  //   id: 'evaluacion',
-  //   label: 'Evaluación ESA',
-  //   icon: BarChart3,
-  //   roles: PASTORAL_TEAM,
-  // },
+  {
+    id: 'evaluacion',
+    label: 'Evaluación',
+    icon: BarChart3,
+    roles: PASTORAL_TEAM,
+  },
   {
     id: 'repositorio',
     label: 'Repositorio MJS',

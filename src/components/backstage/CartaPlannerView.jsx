@@ -110,6 +110,8 @@ export function CartaPlannerView({
   onApproveCarta,
   onSavePlantaFisica,
   onPrintPlantaFisica,
+  onOpenEvaluation,
+  eventEvaluationConfigs = {},
   onDeleteCarta,
   onPrintCarta,
   onOpenPepsalTab,
@@ -335,6 +337,32 @@ export function CartaPlannerView({
                       <Wrench className="h-3.5 w-3.5" />
                       <span>{c.plantaFisica ? 'Planta Física ✓' : 'Planta Física'}</span>
                     </button>
+                    {onOpenEvaluation && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenEvaluation({
+                            id: c.id,
+                            title: c.name,
+                            date: c.date,
+                            plantel: c.plantel === 'Otro' && c.customPlantel ? c.customPlantel : c.plantel,
+                            esaDimensionId: c.esaDimensionId,
+                            pepsalAreaId: c.pepsalAreaId,
+                          })
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
+                          eventEvaluationConfigs[c.id]?.enabled
+                            ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800'
+                            : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                        }`}
+                        title="Enlace y QR de evaluación para participantes"
+                      >
+                        <ClipboardList className="h-3.5 w-3.5 text-pastoral" />
+                        <span>
+                          {eventEvaluationConfigs[c.id]?.enabled ? 'Evaluación ✓' : 'Evaluación'}
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onPrintCarta(c)}

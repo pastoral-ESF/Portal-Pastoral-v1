@@ -16,6 +16,7 @@ import { SacramentsView } from './components/public/SacramentsView';
 import { MultimediaView } from './components/public/MultimediaView';
 import { AccompanimentBoxView } from './components/public/AccompanimentBoxView';
 import { VafejeView } from './components/public/VafejeView';
+import { PublicEvaluationView } from './components/public/PublicEvaluationView';
 
 // Vistas Backstage
 import { BackstageGate } from './components/backstage/BackstageGate';
@@ -26,15 +27,31 @@ import { PepsalView } from './components/backstage/PepsalView';
 import { PrintableCarta } from './components/backstage/PrintableCarta';
 import { PrintablePlantaFisica } from './components/backstage/PrintablePlantaFisica';
 import { CalendarManagerView } from './components/backstage/CalendarManagerView';
-import { EvaluationDashboardView } from './components/backstage/EvaluationDashboardView';
+import { EvaluationCenterView } from './components/backstage/EvaluationCenterView';
+import { EventEvaluationModal } from './components/backstage/EventEvaluationModal';
 import { MjsRepositoryView } from './components/backstage/MjsRepositoryView';
 import { AdminPanelView } from './components/backstage/AdminPanelView';
 import { PortalContentEditorView } from './components/backstage/PortalContentEditorView';
 import { UsersProfileView } from './components/backstage/UsersProfileView';
 
+function parseEvaluationHash() {
+  if (typeof window === 'undefined') return null;
+  const rawHash = window.location.hash || '';
+  if (!rawHash.toLowerCase().startsWith('#evaluar=')) return null;
+  const params = new URLSearchParams(rawHash.slice(1));
+  const eventId = params.get('evaluar');
+  if (!eventId) return null;
+  return {
+    eventId,
+    templateId: params.get('plantilla') || '',
+  };
+}
+
 export default function App() {
   const [db, setDb] = useState(() => storageService.getAllData());
+  const [evalRoute, setEvalRoute] = useState(() => parseEvaluationHash());
   const [mode, setMode] = useState(() => {
+    if (parseEvaluationHash()) return 'evaluate';
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.toLowerCase();
       const params = new URLSearchParams(window.location.search);
@@ -43,12 +60,13 @@ export default function App() {
       }
     }
     return 'gate'; // Página principal: Login del Departamento de Pastoral
-  }); // 'gate' | 'backstage' | 'public'
+  }); // 'gate' | 'backstage' | 'public' | 'evaluate'
   const [publicTab, setPublicTab] = useState('home');
   const [currentUser, setCurrentUser] = useState(null);
   const [backstageTab, setBackstageTab] = useState('dashboard');
   const [editingCartaIntent, setEditingCartaIntent] = useState(null);
   const [taskEventIntent, setTaskEventIntent] = useState(null);
+  const [evaluatingEvent, setEvaluatingEvent] = useState(null);
   const [printJob, setPrintJob] = useState(null); // { type: 'carta' | 'plantaFisica', data }
   const [toasts, setToasts] = useState([]);
 
@@ -81,9 +99,19 @@ export default function App() {
       setDb(remoteDb);
     });
 
+    const handleHashChange = () => {
+      const parsed = parseEvaluationHash();
+      setEvalRoute(parsed);
+      if (parsed) {
+        setMode('evaluate');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
     return () => {
       unsubAuth();
       unsubRemote();
+      window.removeEventListener('hashchange', handleHashChange);
     };
   }, []);
 
@@ -300,6 +328,17 @@ export default function App() {
     addToast('Evaluación ESA registrada correctamente');
   };
 
+  const handleSaveEvaluationTemplates = (templates) => {
+    const updated = storageService.saveEvaluationTemplates(templates);
+    setDb(updated);
+    addToast('Plantillas de evaluación guardadas correctamente');
+  };
+
+  const handleSaveEventEvaluationConfig = (eventId, config) => {
+    const updated = storageService.saveEventEvaluationConfig(eventId, config);
+    setDb(updated);
+  };
+
   const handleSaveQuickEvent = (event) => {
     const updated = storageService.saveQuickEvent(event);
     setDb(updated);
@@ -400,6 +439,24 @@ export default function App() {
 
       {/* Interfaz principal oculta durante @media print */}
       <div className="no-print min-h-screen">
+        {mode === 'evaluate' && evalRoute && (
+          <PublicEvaluationView
+            event={
+              allUnifiedEvents.find(
+                (e) => e.id === evalRoute.eventId || e.linkedQuickEventId === evalRoute.eventId
+              ) || null
+            }
+            config={(db.eventEvaluationConfigs || {})[evalRoute.eventId]}
+            templates={db.evaluationTemplates || []}
+            preselectedTemplateId={evalRoute.templateId}
+            onGoToVisor={() => {
+              window.location.hash = '#visor';
+              setEvalRoute(null);
+              setMode('public');
+            }}
+          />
+        )}
+
         {mode === 'gate' && (
           <BackstageGate
             onAuthenticated={handleAuthenticated}
@@ -464,6 +521,8 @@ export default function App() {
                 onApproveCarta={isFullAdmin ? handleApproveCarta : null}
                 onSavePlantaFisica={handleSavePlantaFisica}
                 onPrintPlantaFisica={handlePrintPlantaFisica}
+                onOpenEvaluation={(ev) => setEvaluatingEvent(ev)}
+                eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 onDeleteCarta={handleDeleteCarta}
                 onPrintCarta={handlePrintCarta}
                 onOpenPepsalTab={() => setBackstageTab('pepsal')}
@@ -504,6 +563,8 @@ export default function App() {
                     setBackstageTab('planeador');
                   }
                 }}
+                onOpenEvaluation={(ev) => setEvaluatingEvent(ev)}
+                eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 onDeriveTask={(ev) => {
                   setTaskEventIntent(ev);
                   setBackstageTab('pendientes');
@@ -513,9 +574,12 @@ export default function App() {
             )}
 
             {backstageTab === 'evaluacion' && isPastoralTeam && (
-              <EvaluationDashboardView
-                cartas={scopedCartas}
-                onSaveEvaluation={handleSaveEvaluation}
+              <EvaluationCenterView
+                templates={db.evaluationTemplates || []}
+                canEditTemplates={isFullAdmin}
+                restrictedPlantel={auxPlantel}
+                onSaveTemplates={handleSaveEvaluationTemplates}
+                onToast={addToast}
               />
             )}
 
@@ -561,6 +625,20 @@ export default function App() {
                 onToast={addToast}
               />
             )}
+
+            <EventEvaluationModal
+              open={Boolean(evaluatingEvent)}
+              event={evaluatingEvent}
+              config={
+                evaluatingEvent
+                  ? (db.eventEvaluationConfigs || {})[evaluatingEvent.id]
+                  : null
+              }
+              templates={db.evaluationTemplates || []}
+              onClose={() => setEvaluatingEvent(null)}
+              onSaveConfig={handleSaveEventEvaluationConfig}
+              onToast={addToast}
+            />
           </BackstageShell>
         )}
 

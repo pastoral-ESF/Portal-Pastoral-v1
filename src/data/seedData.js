@@ -4,6 +4,7 @@ import { DEFAULT_PEPSAL_DOC } from '../constants/pepsalCatalog';
 import { MJS_GROUPS, SACRAMENTS_WIKI, MULTIMEDIA_CONTENT } from './staticContent';
 import { WHATSAPP_CONFIG, DON_BOSCO_CONTEST_URL } from '../constants/config';
 import { NOTION_CALENDAR_2026_2027 } from './notionCalendar2026';
+import { DEFAULT_EVALUATION_TEMPLATES } from './evaluationTemplates';
 
 export const SEED_DATA = {
   pepsalDoc: DEFAULT_PEPSAL_DOC,
@@ -28,4 +29,6 @@ export const SEED_DATA = {
   mjsResources: [],
   accompanimentMessages: [],
   tasks: [],
+  evaluationTemplates: DEFAULT_EVALUATION_TEMPLATES,
+  eventEvaluationConfigs: {},
 };

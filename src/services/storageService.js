@@ -28,6 +28,12 @@ function normalizeDb(parsed = {}) {
     accompanimentMessages:
       parsed.accompanimentMessages ?? structuredClone(SEED_DATA.accompanimentMessages),
     tasks: parsed.tasks ?? structuredClone(SEED_DATA.tasks),
+    evaluationTemplates:
+      Array.isArray(parsed.evaluationTemplates) && parsed.evaluationTemplates.length > 0
+        ? parsed.evaluationTemplates
+        : structuredClone(SEED_DATA.evaluationTemplates),
+    eventEvaluationConfigs:
+      parsed.eventEvaluationConfigs ?? structuredClone(SEED_DATA.eventEvaluationConfigs),
   };
 }
 
@@ -137,6 +143,25 @@ export const storageService = {
   saveMultimedia(multimedia) {
     const db = readDb();
     db.multimedia = multimedia;
+    return writeDb(db);
+  },
+
+  // --- PLANTILLAS Y CONFIGURACIÓN DE EVALUACIONES POR EVENTO ---
+  saveEvaluationTemplates(templates) {
+    const db = readDb();
+    db.evaluationTemplates = templates;
+    return writeDb(db);
+  },
+
+  saveEventEvaluationConfig(eventId, config) {
+    const db = readDb();
+    db.eventEvaluationConfigs = {
+      ...(db.eventEvaluationConfigs || {}),
+      [eventId]: {
+        ...config,
+        updatedAt: new Date().toISOString(),
+      },
+    };
     return writeDb(db);
   },
 

@@ -33,7 +33,15 @@ export function DashboardView({
   onGoToInbox,
 }) {
   const [plantelFilter, setPlantelFilter] = useState('Todos');
+  const [onlyCurrentMonth, setOnlyCurrentMonth] = useState(true);
   const [aguinaldoOpen, setAguinaldoOpen] = useState(false);
+
+  const now = new Date();
+  const currentMonthKey = now.toISOString().slice(0, 7);
+  const currentMonthLabel = now.toLocaleDateString('es-MX', {
+    month: 'long',
+    year: 'numeric',
+  });
 
   const kpis = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -78,10 +86,16 @@ export function DashboardView({
   }, [cartas, unifiedEvents, messages, onGoToEvaluation, onGoToInbox]);
 
   const filteredEvents = useMemo(() => {
-    return unifiedEvents.filter((e) =>
-      plantelFilter === 'Todos' ? true : e.plantel === plantelFilter
-    );
-  }, [unifiedEvents, plantelFilter]);
+    return unifiedEvents.filter((e) => {
+      if (plantelFilter !== 'Todos' && e.plantel !== plantelFilter) return false;
+      if (onlyCurrentMonth) {
+        const startsInMonth = (e.date || '').startsWith(currentMonthKey);
+        const endsInMonth = (e.endDate || '').startsWith(currentMonthKey);
+        if (!startsInMonth && !endsInMonth) return false;
+      }
+      return true;
+    });
+  }, [unifiedEvents, plantelFilter, onlyCurrentMonth, currentMonthKey]);
 
   return (
     <div className="space-y-6">
@@ -190,12 +204,34 @@ export function DashboardView({
       <section className="rounded-3xl bg-white border border-slate-200 p-5 sm:p-6 shadow-card space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900">Agenda y Cartas Descriptivas</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-extrabold text-slate-900 capitalize">
+                {onlyCurrentMonth
+                  ? `Agenda de ${currentMonthLabel}`
+                  : 'Agenda y Cartas Descriptivas (Todo el ciclo)'}
+              </h2>
+              <span className="rounded-full bg-pastoral/10 text-pastoral px-2.5 py-0.5 text-xs font-extrabold">
+                {filteredEvents.length}
+              </span>
+            </div>
             <p className="text-xs text-slate-500">
-              Filtra por plantel para revisar estatus, visibilidad y acciones rápidas.
+              {onlyCurrentMonth
+                ? 'Mostrando únicamente los eventos del mes en curso.'
+                : 'Mostrando todos los eventos registrados del ciclo.'}
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOnlyCurrentMonth((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-full text-xs font-extrabold border transition-all ${
+                onlyCurrentMonth
+                  ? 'bg-pastoral-gold/20 text-amber-950 border-pastoral-gold/60'
+                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+              }`}
+            >
+              {onlyCurrentMonth ? 'Ver todo el ciclo' : 'Solo mes actual'}
+            </button>
             {['Todos', ...PLANTELES].map((p) => (
               <button
                 key={p}

@@ -96,7 +96,7 @@ export function CalendarManagerView({
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [visibilityFilter, setVisibilityFilter] = useState('todos'); // 'todos' | 'publico' | 'interno'
   const [onlyPastoral, setOnlyPastoral] = useState(false);
-  const [monthFilter, setMonthFilter] = useState('Todos'); // 'Todos' | 'YYYY-MM'
+  const [monthFilter, setMonthFilter] = useState(() => new Date().toISOString().slice(0, 7)); // Por defecto: mes en curso ('YYYY-MM')
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleLimit, setVisibleLimit] = useState(60);
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'calendar'
@@ -200,7 +200,11 @@ export function CalendarManagerView({
   // Filtro completo (incluye mes) usado por la Vista Tarjetas
   const filtered = useMemo(() => {
     if (monthFilter === 'Todos') return baseFiltered;
-    return baseFiltered.filter((e) => (e.date || '').startsWith(monthFilter));
+    return baseFiltered.filter(
+      (e) =>
+        (e.date || '').startsWith(monthFilter) ||
+        (e.endDate || '').startsWith(monthFilter)
+    );
   }, [baseFiltered, monthFilter]);
 
   const groupedByMonth = useMemo(() => {

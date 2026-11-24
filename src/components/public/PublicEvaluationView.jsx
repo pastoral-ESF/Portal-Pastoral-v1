@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Star,
   CheckCircle2,
@@ -50,6 +50,15 @@ export function PublicEvaluationView({
     () => activeTemplates.find((t) => t.id === selectedTemplateId) || null,
     [activeTemplates, selectedTemplateId]
   );
+
+  useEffect(() => {
+    if (selectedTemplateId) return;
+    if (preselectedTemplateId && activeTemplates.some((t) => t.id === preselectedTemplateId)) {
+      setSelectedTemplateId(preselectedTemplateId);
+    } else if (activeTemplates.length === 1) {
+      setSelectedTemplateId(activeTemplates[0].id);
+    }
+  }, [activeTemplates, preselectedTemplateId, selectedTemplateId]);
 
   // Evento no encontrado o evaluación no habilitada
   if (!event || !config?.enabled || activeTemplates.length === 0) {
@@ -294,7 +303,7 @@ export function PublicEvaluationView({
                               }
                               className={`flex flex-col items-center justify-center rounded-2xl border py-2.5 transition-all ${
                                 active
-                                  ? 'bg-pastoral-gold/20 border-pastoral-gold text-amber-950 shadow-xs'
+                                  ? 'bg-pastoral-gold/20 border-pastoral-gold text-amber-950 shadow-sm'
                                   : 'bg-slate-50 border-slate-200 text-slate-400 hover:border-pastoral-gold/50'
                               }`}
                             >

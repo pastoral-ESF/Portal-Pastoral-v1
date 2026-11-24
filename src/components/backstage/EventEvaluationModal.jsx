@@ -50,6 +50,12 @@ export function EventEvaluationModal({
     [event]
   );
 
+  const avgRating = useMemo(() => {
+    const valid = responses.map((r) => Number(r.averageRating)).filter((n) => n > 0);
+    if (!valid.length) return '—';
+    return (valid.reduce((s, n) => s + n, 0) / valid.length).toFixed(1);
+  }, [responses]);
+
   if (!open || !event) return null;
 
   const toggleTemplate = (tplId) => {
@@ -88,12 +94,6 @@ export function EventEvaluationModal({
     } — Pastoral ESFER Salesianos:\n${url}`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
-
-  const avgRating = useMemo(() => {
-    const valid = responses.map((r) => Number(r.averageRating)).filter((n) => n > 0);
-    if (!valid.length) return '—';
-    return (valid.reduce((s, n) => s + n, 0) / valid.length).toFixed(1);
-  }, [responses]);
 
   const activeTemplates = templates.filter((t) => selectedIds.includes(t.id));
 

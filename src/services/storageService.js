@@ -10,9 +10,28 @@
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { firestoreDb, isFirebaseConfigured } from './firebase';
 import { SEED_DATA } from '../data/seedData';
+import {
+  DEFAULT_EVALUATION_TEMPLATES,
+  EVALUATION_TEMPLATES_VERSION,
+} from '../data/evaluationTemplates';
 
 const STORAGE_KEY = 'portal_pastoral_esfer_db_v1';
 const FIRESTORE_DOC_PATH = ['portal_pastoral', 'state_v1'];
+
+function resolveEvaluationTemplates(parsed = {}) {
+  const existing = Array.isArray(parsed.evaluationTemplates) ? parsed.evaluationTemplates : [];
+  if (existing.length === 0) {
+    return structuredClone(DEFAULT_EVALUATION_TEMPLATES);
+  }
+  // Si el estado guardado viene de la versión anterior (4-5 preguntas), actualiza las 9 plantillas base a 10 preguntas
+  // conservando cualquier plantilla personalizada creada por el usuario.
+  if ((parsed.evaluationTemplatesVersion || 1) < EVALUATION_TEMPLATES_VERSION) {
+    const defaultIds = new Set(DEFAULT_EVALUATION_TEMPLATES.map((t) => t.id));
+    const customOnly = existing.filter((t) => !defaultIds.has(t.id));
+    return [...structuredClone(DEFAULT_EVALUATION_TEMPLATES), ...customOnly];
+  }
+  return existing;
+}
 
 function normalizeDb(parsed = {}) {
   return {
@@ -28,10 +47,8 @@ function normalizeDb(parsed = {}) {
     accompanimentMessages:
       parsed.accompanimentMessages ?? structuredClone(SEED_DATA.accompanimentMessages),
     tasks: parsed.tasks ?? structuredClone(SEED_DATA.tasks),
-    evaluationTemplates:
-      Array.isArray(parsed.evaluationTemplates) && parsed.evaluationTemplates.length > 0
-        ? parsed.evaluationTemplates
-        : structuredClone(SEED_DATA.evaluationTemplates),
+    evaluationTemplatesVersion: EVALUATION_TEMPLATES_VERSION,
+    evaluationTemplates: resolveEvaluationTemplates(parsed),
     eventEvaluationConfigs:
       parsed.eventEvaluationConfigs ?? structuredClone(SEED_DATA.eventEvaluationConfigs),
   };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Megaphone,
   Inbox,
@@ -8,8 +8,14 @@ import {
   CheckCircle2,
   Clock,
   Lock,
+  Database,
+  Download,
+  Upload,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import { PLANTELES, PLANTEL_BADGE_STYLES } from '../../constants/config';
+import { evaluationService } from '../../services/evaluationService';
 
 const BLANK_NOTICE = {
   title: '',
@@ -23,17 +29,132 @@ export function AdminPanelView({
   notices,
   messages,
   restrictedPlantel,
+  isFullAdmin = false,
+  fullDb = null,
   onAddNotice,
   onDeleteNotice,
   onToggleNoticePin,
   onToggleMessageStatus,
   onDeleteMessage,
+  onImportBackupDb,
+  onToast,
 }) {
   const [noticeForm, setNoticeForm] = useState({
     ...BLANK_NOTICE,
     plantel: restrictedPlantel || 'General',
   });
-  const [activeSubTab, setActiveSubTab] = useState('avisos'); // 'avisos' | 'buzon'
+  const [activeSubTab, setActiveSubTab] = useState('avisos'); // 'avisos' | 'buzon' | 'respaldo'
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [pendingBackup, setPendingBackup] = useState(null);
+  const [backupError, setBackupError] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleExportBackup = async () => {
+    if (!fullDb) return;
+    setExporting(true);
+    try {
+      let evaluations = [];
+      try {
+        evaluations = await evaluationService.listAllResponses();
+      } catch (err) {
+        console.warn('No se pudieron incluir evaluaciones en el respaldo:', err);
+      }
+
+      const payload = {
+        format: 'portal-pastoral-esfer-backup',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        db: fullDb,
+        evaluations,
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json;charset=utf-8;',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `respaldo-portal-pastoral-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (onToast) {
+        onToast(
+          `Respaldo descargado (${(fullDb.cartasDescriptivas || []).length} cartas, ${(fullDb.quickEvents || []).length} eventos, ${evaluations.length} evaluaciones)`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      if (onToast) onToast('Error al generar el archivo de respaldo', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleSelectBackupFile = async (e) => {
+    setBackupError('');
+    setPendingBackup(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const dbPayload =
+        parsed?.format === 'portal-pastoral-esfer-backup' && parsed?.db
+          ? parsed.db
+          : parsed?.cartasDescriptivas || parsed?.quickEvents
+          ? parsed
+          : null;
+
+      if (!dbPayload || typeof dbPayload !== 'object') {
+        setBackupError(
+          'El archivo seleccionado no corresponde a un respaldo válido del Portal Pastoral.'
+        );
+        return;
+      }
+
+      const evalList = Array.isArray(parsed?.evaluations) ? parsed.evaluations : [];
+      setPendingBackup({
+        fileName: file.name,
+        exportedAt: parsed?.exportedAt || '',
+        db: dbPayload,
+        evaluations: evalList,
+      });
+    } catch {
+      setBackupError('No se pudo leer el archivo JSON. Verifica que no esté dañado.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingBackup || !onImportBackupDb) return;
+    setImporting(true);
+    try {
+      onImportBackupDb(pendingBackup.db);
+      let importedEvals = 0;
+      if (pendingBackup.evaluations.length > 0) {
+        importedEvals = await evaluationService.importResponses(pendingBackup.evaluations);
+      }
+      setPendingBackup(null);
+      if (onToast) {
+        onToast(
+          `Respaldo restaurado y sincronizado con Firebase (${importedEvals} evaluación(es) incluida(s))`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      setBackupError(
+        'Ocurrió un error al restaurar el respaldo. Verifica tu conexión y permisos en Firebase.'
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleNoticeSubmit = (e) => {
     e.preventDefault();
@@ -90,10 +211,24 @@ export function AdminPanelView({
               </span>
             )}
           </button>
+          {isFullAdmin && (
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('respaldo')}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                activeSubTab === 'respaldo'
+                  ? 'bg-pastoral text-white shadow-sm'
+                  : 'text-slate-600 hover:text-pastoral'
+              }`}
+            >
+              <Database className="h-4 w-4" />
+              <span>Respaldo</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {activeSubTab === 'avisos' ? (
+      {activeSubTab === 'avisos' && (
         <div className="grid lg:grid-cols-12 gap-6">
           {/* Crear aviso */}
           <form
@@ -236,7 +371,9 @@ export function AdminPanelView({
             ))}
           </div>
         </div>
-      ) : (
+      )}
+
+      {activeSubTab === 'buzon' && (
         /* Bandeja Privada del Buzón de Acompañamiento */
         <div className="space-y-4">
           <div className="rounded-2xl bg-pastoral/5 border border-pastoral/15 p-4 flex items-center gap-3 text-xs sm:text-sm text-slate-700">
@@ -335,6 +472,202 @@ export function AdminPanelView({
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {activeSubTab === 'respaldo' && isFullAdmin && (
+        <div className="space-y-6">
+          <div className="rounded-2xl bg-pastoral/5 border border-pastoral/15 p-4 flex items-start gap-3 text-xs sm:text-sm text-slate-700">
+            <ShieldCheck className="h-5 w-5 text-pastoral shrink-0 mt-0.5" />
+            <div>
+              <strong>Respaldo y Migración de Base de Datos (Solo SDB / Coordinador):</strong>{' '}
+              Descarga una copia completa en formato <code>.json</code> con todas tus Cartas
+              Descriptivas, eventos modificados, pendientes, avisos, grupos MJS, configuración del
+              portal, plantillas y respuestas de evaluación. Ideal para respaldos periódicos o
+              para migrar a una cuenta institucional de Firebase.
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Tarjeta 1: Exportar */}
+            <section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-card flex flex-col justify-between space-y-5">
+              <div className="space-y-2">
+                <div className="h-11 w-11 rounded-2xl bg-pastoral/10 text-pastoral flex items-center justify-center">
+                  <Download className="h-5 w-5" />
+                </div>
+                <h2 className="text-lg font-extrabold text-slate-900">
+                  1. Descargar respaldo completo
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  Genera un archivo <code>.json</code> en tu computadora con toda la información
+                  actual de Firebase. Guárdalo en Google Drive o en una carpeta segura del
+                  Departamento de Pastoral.
+                </p>
+                {fullDb && (
+                  <div className="grid grid-cols-2 gap-2 pt-2 text-xs">
+                    <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3 py-2">
+                      <span className="text-slate-400 font-semibold block">Cartas Descriptivas</span>
+                      <span className="font-black text-slate-900">
+                        {(fullDb.cartasDescriptivas || []).length}
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3 py-2">
+                      <span className="text-slate-400 font-semibold block">Eventos Calendario</span>
+                      <span className="font-black text-slate-900">
+                        {(fullDb.quickEvents || []).length}
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3 py-2">
+                      <span className="text-slate-400 font-semibold block">Pendientes</span>
+                      <span className="font-black text-slate-900">
+                        {(fullDb.tasks || []).length}
+                      </span>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3 py-2">
+                      <span className="text-slate-400 font-semibold block">Plantillas Eval.</span>
+                      <span className="font-black text-slate-900">
+                        {(fullDb.evaluationTemplates || []).length}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                disabled={exporting}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-pastoral hover:bg-pastoral-deep disabled:opacity-60 text-white font-extrabold text-sm py-3.5 shadow-sm transition-colors"
+              >
+                <Download className="h-4 w-4" />
+                <span>{exporting ? 'Generando respaldo...' : 'Descargar respaldo (.json)'}</span>
+              </button>
+            </section>
+
+            {/* Tarjeta 2: Importar / Restaurar */}
+            <section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-card flex flex-col justify-between space-y-5">
+              <div className="space-y-3">
+                <div className="h-11 w-11 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <h2 className="text-lg font-extrabold text-slate-900">
+                  2. Importar / Restaurar respaldo
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  Selecciona un archivo <code>respaldo-portal-pastoral-*.json</code> para cargar
+                  todos tus datos en esta base de datos (por ejemplo, al estrenar el Firebase
+                  institucional de la escuela).
+                </p>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={handleSelectBackupFile}
+                  className="hidden"
+                />
+
+                {backupError && (
+                  <div className="rounded-2xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-xs font-semibold text-rose-700">
+                    {backupError}
+                  </div>
+                )}
+
+                {pendingBackup && (
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 space-y-3">
+                    <div className="flex items-start gap-2 text-amber-900">
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <div className="font-extrabold">
+                          Archivo listo: {pendingBackup.fileName}
+                        </div>
+                        {pendingBackup.exportedAt && (
+                          <div className="text-amber-700">
+                            Exportado el{' '}
+                            {new Date(pendingBackup.exportedAt).toLocaleString('es-MX')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <ul className="text-xs text-amber-900 space-y-1 pl-1">
+                      <li>
+                        • <strong>{(pendingBackup.db.cartasDescriptivas || []).length}</strong>{' '}
+                        Cartas Descriptivas
+                      </li>
+                      <li>
+                        • <strong>{(pendingBackup.db.quickEvents || []).length}</strong> Eventos de
+                        calendario
+                      </li>
+                      <li>
+                        • <strong>{(pendingBackup.db.tasks || []).length}</strong> Pendientes ·{' '}
+                        <strong>{(pendingBackup.db.notices || []).length}</strong> Avisos
+                      </li>
+                      <li>
+                        • <strong>{pendingBackup.evaluations.length}</strong> Respuestas de
+                        evaluación
+                      </li>
+                    </ul>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleConfirmImport}
+                        disabled={importing}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-extrabold text-xs px-4 py-2.5"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>
+                          {importing ? 'Restaurando...' : 'Confirmar restauración'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingBackup(null)}
+                        disabled={importing}
+                        className="rounded-xl bg-white border border-amber-300 text-amber-900 font-bold text-xs px-3.5 py-2.5"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {!pendingBackup && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-extrabold text-sm py-3.5 transition-colors"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>Seleccionar archivo de respaldo (.json)</span>
+                </button>
+              )}
+            </section>
+          </div>
+
+          {/* Guía breve para migrar a cuenta de la escuela */}
+          <div className="rounded-3xl bg-white border border-slate-200 p-5 sm:p-6 shadow-card space-y-2">
+            <h3 className="text-sm font-extrabold text-slate-900">
+              Guía rápida para migrar a la cuenta Firebase de la escuela
+            </h3>
+            <ol className="text-xs sm:text-sm text-slate-600 space-y-1.5 list-decimal pl-5">
+              <li>
+                Pulsa <strong>Descargar respaldo (.json)</strong> aquí antes de cambiar de cuenta.
+              </li>
+              <li>
+                Crea el proyecto Firebase en la cuenta de la escuela (activa Authentication y
+                Firestore con las mismas reglas) y actualiza las 6 llaves{' '}
+                <code>VITE_FIREBASE_*</code> en <code>.env</code> y en los{' '}
+                <strong>Secrets de GitHub</strong>.
+              </li>
+              <li>
+                Inicia sesión en el Portal conectado a la nueva base de datos, entra a{' '}
+                <strong>Administración → Respaldo</strong> y sube tu archivo <code>.json</code>.
+              </li>
+            </ol>
+          </div>
         </div>
       )}
     </div>

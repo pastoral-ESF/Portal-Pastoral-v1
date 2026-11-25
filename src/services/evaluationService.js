@@ -4,6 +4,7 @@
 import {
   collection,
   addDoc,
+  setDoc,
   getDocs,
   deleteDoc,
   doc,
@@ -73,6 +74,34 @@ export const evaluationService = {
     }
     const filtered = readLocalEvaluations().filter((e) => e.id !== evalId);
     writeLocalEvaluations(filtered);
+  },
+
+  async importResponses(list = []) {
+    if (!Array.isArray(list) || list.length === 0) return 0;
+
+    if (isFirebaseConfigured && firestoreDb) {
+      let imported = 0;
+      for (const item of list) {
+        const { id, ...rest } = item || {};
+        const clean = JSON.parse(JSON.stringify(rest));
+        if (id) {
+          await setDoc(doc(firestoreDb, 'evaluations', String(id)), clean, { merge: true });
+        } else {
+          await addDoc(collection(firestoreDb, 'evaluations'), clean);
+        }
+        imported += 1;
+      }
+      return imported;
+    }
+
+    const existing = readLocalEvaluations();
+    const existingIds = new Set(existing.map((e) => e.id));
+    const merged = [
+      ...list.filter((item) => item && !existingIds.has(item.id)),
+      ...existing,
+    ];
+    writeLocalEvaluations(merged);
+    return list.length;
   },
 };
 

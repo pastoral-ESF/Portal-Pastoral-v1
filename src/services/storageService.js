@@ -398,6 +398,14 @@ export const storageService = {
     db.accompanimentMessages = db.accompanimentMessages.filter((m) => m.id !== msgId);
     return writeDb(db);
   },
+
+  // --- RESPALDO / MIGRACIÓN COMPLETA ---
+  importFullDb(rawDb) {
+    if (!rawDb || typeof rawDb !== 'object') {
+      throw new Error('El archivo de respaldo no tiene un formato válido.');
+    }
+    return writeDb(rawDb);
+  },
 };
 
 /**

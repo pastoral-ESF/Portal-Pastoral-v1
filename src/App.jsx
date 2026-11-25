@@ -597,11 +597,18 @@ export default function App() {
                 notices={scopedNotices}
                 messages={scopedMessages}
                 restrictedPlantel={auxPlantel}
+                isFullAdmin={isFullAdmin}
+                fullDb={db}
                 onAddNotice={handleAddNotice}
                 onDeleteNotice={handleDeleteNotice}
                 onToggleNoticePin={handleToggleNoticePin}
                 onToggleMessageStatus={handleToggleMessageStatus}
                 onDeleteMessage={handleDeleteMessage}
+                onImportBackupDb={(importedDb) => {
+                  const updated = storageService.importFullDb(importedDb);
+                  setDb(updated);
+                }}
+                onToast={addToast}
               />
             )}
 

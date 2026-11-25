@@ -15,8 +15,11 @@ import {
   ExternalLink,
   CheckCircle2,
   Wrench,
+  Copy,
+  CheckSquare,
 } from 'lucide-react';
 import { PlantaFisicaModal } from './PlantaFisicaModal';
+import { Modal } from '../common/Modal';
 import {
   CARTA_PLANTEL_OPTIONS,
   ACTIVITY_STATUSES,
@@ -111,6 +114,7 @@ export function CartaPlannerView({
   onSavePlantaFisica,
   onPrintPlantaFisica,
   onOpenEvaluation,
+  onDeriveTask,
   eventEvaluationConfigs = {},
   onDeleteCarta,
   onPrintCarta,
@@ -118,9 +122,63 @@ export function CartaPlannerView({
 }) {
   const [mode, setMode] = useState(initialEditingCarta ? 'form' : 'list'); // 'list' | 'form'
   const [plantaFisicaCarta, setPlantaFisicaCarta] = useState(null);
+  const [duplicatingCarta, setDuplicatingCarta] = useState(null);
+  const [targetPlanteles, setTargetPlanteles] = useState([]);
   const [form, setForm] = useState(() =>
     buildFormFromIntent(initialEditingCarta, restrictedPlantel)
   );
+
+  const openDuplicateModal = (carta) => {
+    const corePlanteles = ['Glandorff', 'Kennedy', 'Cordilleras'];
+    const suggested = restrictedPlantel
+      ? [restrictedPlantel]
+      : corePlanteles.filter((p) => p !== carta.plantel);
+    setTargetPlanteles(suggested.length ? suggested : ['Kennedy']);
+    setDuplicatingCarta(carta);
+  };
+
+  const toggleTargetPlantel = (plantel) => {
+    setTargetPlanteles((prev) =>
+      prev.includes(plantel) ? prev.filter((p) => p !== plantel) : [...prev, plantel]
+    );
+  };
+
+  const handleConfirmDuplicate = (e) => {
+    e.preventDefault();
+    if (!duplicatingCarta || targetPlanteles.length === 0) return;
+
+    const now = Date.now();
+    targetPlanteles.forEach((plantel, idx) => {
+      const {
+        id: _oldId,
+        approvedBy: _approvedBy,
+        approvedAt: _approvedAt,
+        plantaFisica: _plantaFisica,
+        evaluation: _evaluation,
+        linkedQuickEventId: _linkedId,
+        ...rest
+      } = duplicatingCarta;
+
+      onSaveCarta({
+        ...rest,
+        id: null,
+        plantel,
+        customPlantel: '',
+        status: 'En planeación',
+        schedule: (duplicatingCarta.schedule || []).map((row, rIdx) => ({
+          ...row,
+          id: `sch-${now}-${idx}-${rIdx}`,
+        })),
+        commissions: (duplicatingCarta.commissions || []).map((row, cIdx) => ({
+          ...row,
+          id: `com-${now}-${idx}-${cIdx}`,
+        })),
+      });
+    });
+
+    setDuplicatingCarta(null);
+    setTargetPlanteles([]);
+  };
 
   useEffect(() => {
     if (initialEditingCarta) {
@@ -363,6 +421,36 @@ export function CartaPlannerView({
                         </span>
                       </button>
                     )}
+                    {onDeriveTask && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onDeriveTask({
+                            id: c.id,
+                            title: `Carta Descriptiva: ${c.name}`,
+                            date: c.date,
+                            plantel:
+                              c.plantel === 'Otro' && c.customPlantel
+                                ? c.customPlantel
+                                : c.plantel,
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 px-3 py-1.5 text-xs font-bold transition-colors"
+                        title="Asignar esta Carta Descriptiva como pendiente a un agente o a ti mismo"
+                      >
+                        <CheckSquare className="h-3.5 w-3.5" />
+                        <span>Derivar pendiente</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openDuplicateModal(c)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-white hover:bg-pastoral/5 border border-slate-300 hover:border-pastoral/40 text-slate-700 hover:text-pastoral px-3 py-1.5 text-xs font-bold transition-colors"
+                      title="Duplicar esta Carta Descriptiva para otros planteles"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Duplicar</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => onPrintCarta(c)}
@@ -404,6 +492,78 @@ export function CartaPlannerView({
             if (onPrintPlantaFisica) onPrintPlantaFisica(solicitud);
           }}
         />
+
+        {/* Modal Duplicar Carta para otro(s) plantel(es) */}
+        <Modal
+          open={Boolean(duplicatingCarta)}
+          onClose={() => setDuplicatingCarta(null)}
+          title="Duplicar Carta para otro(s) plantel(es)"
+          subtitle={duplicatingCarta ? `${duplicatingCarta.name} (Origen: ${duplicatingCarta.plantel})` : ''}
+          maxWidth="max-w-md"
+        >
+          {duplicatingCarta && (
+            <form onSubmit={handleConfirmDuplicate} className="space-y-4">
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Se copiará el objetivo, horario, comisiones, ESA y PEPSAL en estado{' '}
+                <strong>En planeación</strong> (sin copiar la aprobación ni la Planta Física para
+                que cada plantel llene los suyos).
+              </p>
+
+              <div className="space-y-2">
+                <div className="text-xs font-extrabold text-slate-700 uppercase">
+                  Selecciona el/los planteles destino:
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(restrictedPlantel
+                    ? [restrictedPlantel, 'TSJB (Templo San Juan Bosco)']
+                    : ['Glandorff', 'Kennedy', 'Cordilleras', 'General', 'TSJB (Templo San Juan Bosco)']
+                  ).map((p) => {
+                    const checked = targetPlanteles.includes(p);
+                    return (
+                      <label
+                        key={p}
+                        className={`flex items-center gap-2 rounded-2xl border p-3 cursor-pointer text-xs font-bold transition-all ${
+                          checked
+                            ? 'bg-pastoral/5 border-pastoral text-pastoral-deep ring-1 ring-pastoral/20'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-pastoral/40'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleTargetPlantel(p)}
+                          className="rounded border-slate-300 text-pastoral focus:ring-pastoral"
+                        />
+                        <span className="truncate">{p}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDuplicatingCarta(null)}
+                  className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={targetPlanteles.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-pastoral hover:bg-pastoral-deep disabled:opacity-40 text-white px-4 py-2 text-xs font-extrabold shadow-sm"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>
+                    Crear {targetPlanteles.length}{' '}
+                    {targetPlanteles.length === 1 ? 'copia' : 'copias'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          )}
+        </Modal>
       </div>
     );
   }

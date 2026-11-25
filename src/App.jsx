@@ -569,6 +569,10 @@ export default function App() {
                 onSavePlantaFisica={handleSavePlantaFisica}
                 onPrintPlantaFisica={handlePrintPlantaFisica}
                 onOpenEvaluation={(ev) => setEvaluatingEvent(ev)}
+                onDeriveTask={(ev) => {
+                  setTaskEventIntent(ev);
+                  setBackstageTab('pendientes');
+                }}
                 eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 onDeleteCarta={handleDeleteCarta}
                 onPrintCarta={handlePrintCarta}
@@ -611,11 +615,11 @@ export default function App() {
                   }
                 }}
                 onOpenEvaluation={(ev) => setEvaluatingEvent(ev)}
-                eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 onDeriveTask={(ev) => {
                   setTaskEventIntent(ev);
                   setBackstageTab('pendientes');
                 }}
+                eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 onToast={addToast}
               />
             )}

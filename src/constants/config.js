@@ -56,6 +56,8 @@ export const EVALUATION_AUDIENCE_OPTIONS = [
   'Docente / Colaborador',
   'Padre / Madre de Familia',
   'Equipo Organizador',
+  'Núcleo de la CEP',
+  'Agente de Pastoral',
   'Animador MJS',
   'Padrinos / Invitados',
 ];

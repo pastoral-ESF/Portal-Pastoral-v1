@@ -31,4 +31,5 @@ export const SEED_DATA = {
   tasks: [],
   evaluationTemplates: DEFAULT_EVALUATION_TEMPLATES,
   eventEvaluationConfigs: {},
+  customEvaluations: [],
 };

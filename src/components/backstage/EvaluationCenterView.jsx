@@ -15,6 +15,8 @@ import {
   CheckCircle2,
   Lock,
   AlertTriangle,
+  QrCode,
+  Sparkles,
 } from 'lucide-react';
 import { evaluationService } from '../../services/evaluationService';
 import { authService } from '../../services/authService';
@@ -97,9 +99,14 @@ function computeQuestionStats(responsesList = [], templates = []) {
 
 export function EvaluationCenterView({
   templates = [],
+  customEvaluations = [],
+  eventEvaluationConfigs = {},
   canEditTemplates = false,
   restrictedPlantel = null,
   onSaveTemplates,
+  onCreateCustomEvaluation,
+  onDeleteCustomEvaluation,
+  onOpenEvaluation,
   onPrintReport,
   onToast,
 }) {
@@ -119,6 +126,36 @@ export function EvaluationCenterView({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Estado del modal para crear Evaluación Institucional / Libre (sin calendario)
+  const [newInstOpen, setNewInstOpen] = useState(false);
+  const [instForm, setInstForm] = useState({
+    title: '',
+    plantel: 'General',
+    date: new Date().toISOString().slice(0, 10),
+    description: '',
+  });
+
+  const handleCreateInstitutional = (e) => {
+    e.preventDefault();
+    if (!instForm.title.trim() || !onCreateCustomEvaluation) return;
+    const created = onCreateCustomEvaluation({
+      title: instForm.title.trim(),
+      plantel: instForm.plantel || 'General',
+      date: instForm.date || '',
+      description: instForm.description.trim(),
+    });
+    setNewInstOpen(false);
+    setInstForm({
+      title: '',
+      plantel: 'General',
+      date: new Date().toISOString().slice(0, 10),
+      description: '',
+    });
+    if (created && onOpenEvaluation) {
+      onOpenEvaluation(created);
+    }
+  };
 
   useEffect(() => {
     setDraftTemplates(templates);
@@ -151,7 +188,9 @@ export function EvaluationCenterView({
   // Respuestas visibles (si es Auxiliar, solo su plantel)
   const scopedResponses = useMemo(() => {
     if (!restrictedPlantel) return responses;
-    return responses.filter((r) => r.plantel === restrictedPlantel);
+    return responses.filter(
+      (r) => r.respondentPlantel === restrictedPlantel || r.plantel === restrictedPlantel
+    );
   }, [responses, restrictedPlantel]);
 
   const distinctEvents = useMemo(() => {
@@ -174,14 +213,17 @@ export function EvaluationCenterView({
 
   const filteredResponses = useMemo(() => {
     return scopedResponses.filter((r) => {
-      if (plantelFilter !== 'Todos' && r.plantel !== plantelFilter) return false;
+      if (plantelFilter !== 'Todos') {
+        const respPlantel = r.respondentPlantel || r.plantel;
+        if (respPlantel !== plantelFilter && r.plantel !== plantelFilter) return false;
+      }
       if (eventFilter !== 'Todos' && r.eventId !== eventFilter) return false;
       if (audienceFilter !== 'Todos' && r.audienceLabel !== audienceFilter) return false;
       return true;
     });
   }, [scopedResponses, plantelFilter, eventFilter, audienceFilter]);
 
-  // Métricas resumidas por Evento (con desglose por Destinatario)
+  // Métricas resumidas por Evento (con desglose por Destinatario y por Plantel)
   const eventBreakdown = useMemo(() => {
     const map = new Map();
     filteredResponses.forEach((r) => {
@@ -195,6 +237,7 @@ export function EvaluationCenterView({
           count: 0,
           ratings: [],
           byAudience: new Map(),
+          byPlantel: new Map(),
         });
       }
       const entry = map.get(key);
@@ -208,6 +251,14 @@ export function EvaluationCenterView({
       const audEntry = entry.byAudience.get(aud);
       audEntry.count += 1;
       if (Number(r.averageRating) > 0) audEntry.ratings.push(Number(r.averageRating));
+
+      const respPlantel = r.respondentPlantel || r.plantel || 'General';
+      if (!entry.byPlantel.has(respPlantel)) {
+        entry.byPlantel.set(respPlantel, { label: respPlantel, count: 0, ratings: [] });
+      }
+      const pEntry = entry.byPlantel.get(respPlantel);
+      pEntry.count += 1;
+      if (Number(r.averageRating) > 0) pEntry.ratings.push(Number(r.averageRating));
     });
 
     return Array.from(map.values()).map((e) => ({
@@ -219,6 +270,12 @@ export function EvaluationCenterView({
         ...a,
         avg: a.ratings.length
           ? (a.ratings.reduce((s, n) => s + n, 0) / a.ratings.length).toFixed(1)
+          : '—',
+      })),
+      planteles: Array.from(e.byPlantel.values()).map((p) => ({
+        ...p,
+        avg: p.ratings.length
+          ? (p.ratings.reduce((s, n) => s + n, 0) / p.ratings.length).toFixed(1)
           : '—',
       })),
     }));
@@ -261,6 +318,7 @@ export function EvaluationCenterView({
       count: evEntry.count,
       avg: evEntry.avg,
       audiences: evEntry.audiences,
+      planteles: evEntry.planteles || [],
       questionStats: computeQuestionStats(evResponses, templates),
       comments: evComments,
       filterNote: audienceFilter !== 'Todos' ? `Destinatario: ${audienceFilter}` : '',
@@ -365,7 +423,8 @@ export function EvaluationCenterView({
       'Fecha envío',
       'Evento',
       'Fecha evento',
-      'Plantel',
+      'Plantel del evento',
+      'Plantel del participante',
       'Destinatario',
       'Promedio (1-5)',
       'Respuestas',
@@ -381,6 +440,7 @@ export function EvaluationCenterView({
         r.eventTitle || '',
         r.eventDate || '',
         r.plantel || '',
+        r.respondentPlantel || r.plantel || '',
         r.audienceLabel || '',
         r.averageRating ?? '',
         summary,
@@ -468,39 +528,133 @@ export function EvaluationCenterView({
           </p>
         </div>
 
-        <div className="inline-flex bg-white border border-slate-200 rounded-2xl p-1 shadow-card self-start">
-          <button
-            type="button"
-            onClick={() => setSubTab('resultados')}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
-              subTab === 'resultados'
-                ? 'bg-pastoral text-white shadow-sm'
-                : 'text-slate-600 hover:text-pastoral'
-            }`}
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span>Resultados ({scopedResponses.length})</span>
-          </button>
-          {canEditTemplates && (
+        <div className="flex flex-wrap items-center gap-2 self-start">
+          {canEditTemplates && onCreateCustomEvaluation && (
             <button
               type="button"
-              onClick={() => setSubTab('plantillas')}
+              onClick={() => setNewInstOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-pastoral-gold hover:bg-amber-400 text-pastoral-deep px-4 py-2.5 text-xs font-black shadow-sm transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Nueva Evaluación Institucional</span>
+            </button>
+          )}
+          <div className="inline-flex bg-white border border-slate-200 rounded-2xl p-1 shadow-card">
+            <button
+              type="button"
+              onClick={() => setSubTab('resultados')}
               className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
-                subTab === 'plantillas'
+                subTab === 'resultados'
                   ? 'bg-pastoral text-white shadow-sm'
                   : 'text-slate-600 hover:text-pastoral'
               }`}
             >
-              <Sliders className="h-4 w-4" />
-              <span>Plantillas ({draftTemplates.length})</span>
+              <BarChart3 className="h-4 w-4" />
+              <span>Resultados ({scopedResponses.length})</span>
             </button>
-          )}
+            {canEditTemplates && (
+              <button
+                type="button"
+                onClick={() => setSubTab('plantillas')}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                  subTab === 'plantillas'
+                    ? 'bg-pastoral text-white shadow-sm'
+                    : 'text-slate-600 hover:text-pastoral'
+                }`}
+              >
+                <Sliders className="h-4 w-4" />
+                <span>Plantillas ({draftTemplates.length})</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* SUBPESTAÑA 1: RESULTADOS */}
       {subTab === 'resultados' && (
         <div className="space-y-6">
+          {/* Evaluaciones Institucionales / Libres (sin calendario, ej. PEPSAL) */}
+          {customEvaluations.length > 0 && (
+            <section className="rounded-3xl bg-white border border-pastoral/20 p-5 shadow-card space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-pastoral" />
+                  <h2 className="text-sm font-black text-pastoral-deep">
+                    Evaluaciones Institucionales / Libres (Sin calendario)
+                  </h2>
+                </div>
+                <span className="text-xs font-bold text-slate-400">
+                  {customEvaluations.length} creada(s)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {customEvaluations.map((ev) => {
+                  const cfg = eventEvaluationConfigs[ev.id];
+                  const isOpen = cfg?.enabled;
+                  return (
+                    <div
+                      key={ev.id}
+                      className="rounded-2xl bg-slate-50 border border-slate-200 p-3.5 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                              PLANTEL_BADGE_STYLES[ev.plantel] || PLANTEL_BADGE_STYLES.General
+                            }`}
+                          >
+                            {ev.plantel || 'General'}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              isOpen
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {isOpen ? 'Abierta' : 'Sin configurar'}
+                          </span>
+                          {ev.date && (
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              {ev.date}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm font-extrabold text-slate-900 truncate mt-1">
+                          {ev.title}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {onOpenEvaluation && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenEvaluation(ev)}
+                            className="inline-flex items-center gap-1 rounded-xl bg-pastoral hover:bg-pastoral-deep text-white px-3 py-1.5 text-xs font-extrabold"
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            <span>QR / Enlace</span>
+                          </button>
+                        )}
+                        {canEditTemplates && onDeleteCustomEvaluation && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteCustomEvaluation(ev.id)}
+                            className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                            title="Quitar de la lista de evaluaciones institucionales"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {/* KPIs */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-card">
@@ -698,6 +852,32 @@ export function EvaluationCenterView({
                       </div>
                     ))}
                   </div>
+
+                  {/* Desglose por Plantel del participante (eventos inter-planteles) */}
+                  {ev.planteles &&
+                    (ev.planteles.length > 1 ||
+                      (ev.plantel === 'General' && ev.planteles.some((p) => p.label !== 'General'))) && (
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                          Participación por Plantel
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {ev.planteles.map((pl) => (
+                            <span
+                              key={pl.label}
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${
+                                PLANTEL_BADGE_STYLES[pl.label] || PLANTEL_BADGE_STYLES.General
+                              }`}
+                            >
+                              <span>{pl.label}</span>
+                              <span className="font-black">
+                                {pl.count} resp. · {pl.avg}/5
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                 </article>
               ))}
             </div>
@@ -1079,6 +1259,94 @@ export function EvaluationCenterView({
           </div>
         </div>
       )}
+
+      {/* Modal para crear Evaluación Institucional / Libre (sin evento de calendario) */}
+      <Modal
+        open={newInstOpen}
+        onClose={() => setNewInstOpen(false)}
+        title="Nueva Evaluación Institucional (Sin calendario)"
+        subtitle="Ideal para evaluar el PEPSAL, revisiones del Núcleo CEP o diagnósticos semestrales"
+        maxWidth="max-w-lg"
+      >
+        <form onSubmit={handleCreateInstitutional} className="space-y-4">
+          <div>
+            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+              Nombre de la evaluación *
+            </label>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={instForm.title}
+              onChange={(e) => setInstForm({ ...instForm, title: e.target.value })}
+              placeholder="Ej. Evaluación Semestral PEPSAL Ciclo 26–27"
+              className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-pastoral"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Alcance / Plantel
+              </label>
+              <select
+                value={instForm.plantel}
+                onChange={(e) => setInstForm({ ...instForm, plantel: e.target.value })}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold"
+              >
+                <option value="General">General (Inter-planteles)</option>
+                {PLANTELES.filter((p) => p !== 'General').map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Fecha de referencia
+              </label>
+              <input
+                type="date"
+                value={instForm.date}
+                onChange={(e) => setInstForm({ ...instForm, date: e.target.value })}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+              Descripción breve (opcional)
+            </label>
+            <textarea
+              rows={2}
+              value={instForm.description}
+              onChange={(e) => setInstForm({ ...instForm, description: e.target.value })}
+              placeholder="Ej. Seguimiento del Núcleo de la CEP y agentes de Pastoral de los 3 planteles..."
+              className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setNewInstOpen(false)}
+              className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-700"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-pastoral hover:bg-pastoral-deep text-white px-4 py-2 text-xs font-extrabold shadow-sm"
+            >
+              <QrCode className="h-4 w-4" />
+              <span>Crear y configurar QR / Destinatarios</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Modal protegido con contraseña para eliminar respuestas de un evento */}
       <Modal

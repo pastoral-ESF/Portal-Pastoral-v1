@@ -26,6 +26,8 @@ function isOrganizerAudience(audience = '') {
   return /organizador|logística|logistica/i.test(String(audience || ''));
 }
 
+const RESPONDENT_PLANTEL_OPTIONS = ['Glandorff', 'Kennedy', 'Cordilleras', 'Otro / Invitado'];
+
 export function PublicEvaluationView({
   event,
   config,
@@ -68,6 +70,7 @@ export function PublicEvaluationView({
   });
 
   const [answersMap, setAnswersMap] = useState({});
+  const [respondentPlantel, setRespondentPlantel] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [closeHint, setCloseHint] = useState(false);
@@ -288,9 +291,19 @@ export function PublicEvaluationView({
     );
   }
 
+  const shouldAskPlantel =
+    typeof config?.askPlantel === 'boolean'
+      ? config.askPlantel
+      : !['Glandorff', 'Kennedy', 'Cordilleras'].includes(String(event?.plantel || 'General'));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedTemplate) return;
+
+    if (shouldAskPlantel && !respondentPlantel) {
+      setError('Por favor selecciona de qué plantel participas.');
+      return;
+    }
 
     // Validar obligatorias
     for (const q of selectedTemplate.questions || []) {
@@ -324,6 +337,9 @@ export function PublicEvaluationView({
         eventTitle: event.title,
         eventDate: event.date || '',
         plantel: event.plantel || 'General',
+        respondentPlantel: shouldAskPlantel
+          ? respondentPlantel
+          : event.plantel || 'General',
         category: event.category || 'Pastoral',
         esaDimensionId: event.esaDimensionId || '',
         pepsalAreaId: event.pepsalAreaId || '',
@@ -491,6 +507,30 @@ export function PublicEvaluationView({
             </div>
 
             <div className="space-y-6">
+              {shouldAskPlantel && (
+                <div className="rounded-2xl bg-pastoral/5 border border-pastoral/15 p-4 space-y-2.5">
+                  <label className="block text-sm font-extrabold text-pastoral-deep">
+                    ¿De qué plantel participas? <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {RESPONDENT_PLANTEL_OPTIONS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setRespondentPlantel(p)}
+                        className={`rounded-xl border py-2.5 px-2 text-xs font-extrabold transition-all ${
+                          respondentPlantel === p
+                            ? 'bg-pastoral text-white border-pastoral shadow-sm'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-pastoral/50'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {(selectedTemplate.questions || []).map((q, idx) => (
                 <div key={q.id} className="space-y-2.5">
                   <label className="block text-sm font-extrabold text-slate-800 leading-snug">

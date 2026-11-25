@@ -1,7 +1,7 @@
 // 9 Plantillas base de Evaluación Pastoral (10 preguntas c/u) alineadas al Modelo ESA y PEPSAL Ciclo 26-27
 // Cada pregunta incluye su criterio interno (ESA / PEPSAL), visible solo para Pastoral en editor, gráficas y reportes.
 
-export const EVALUATION_TEMPLATES_VERSION = 3;
+export const EVALUATION_TEMPLATES_VERSION = 4;
 
 export const DEFAULT_EVALUATION_TEMPLATES = [
   {
@@ -710,6 +710,85 @@ export const DEFAULT_EVALUATION_TEMPLATES = [
         id: 'q-log-10',
         text: 'Ajustes concretos o mejoras prioritarias para la próxima vez',
         criteria: 'ESA 4.1 · PEPSAL: Reto 08 · Plan de acción y mejora continua',
+        type: 'text',
+        required: false,
+      },
+    ],
+  },
+  {
+    id: 'tpl-pepsal',
+    name: 'Evaluación del PEPSAL (Ciclo 26–27)',
+    audienceLabel: 'Núcleo CEP / Agente de Pastoral',
+    pepsalTag: 'PEPSAL Ciclo 26–27 · Global',
+    esaTag: 'ESA 1.1 – 4.3',
+    questions: [
+      {
+        id: 'q-pep-1',
+        text: '¿En qué medida se está logrando la apropiación del PEPSAL 26–27 en la vida diaria de tu plantel?',
+        criteria: 'ESA 1.1 · PEPSAL: Objetivo 1 · Identidad y apropiación del PEPSAL',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-2',
+        text: '¿Cómo evalúas el avance de la Dimensión Educación en la Fe (misas, retiros, sacramentos e itinerarios)?',
+        criteria: 'ESA 2.2 · PEPSAL: Dimensión CEP · Educación en la Fe',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-3',
+        text: '¿Cómo evalúas el avance de la Dimensión Educativo-Cultural (identidad salesiana y formación docente)?',
+        criteria: 'ESA 2.4 · PEPSAL: Dimensión CEP · Educativo-Cultural',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-4',
+        text: '¿Cómo evalúas el avance de la Dimensión Experiencia Asociativa (MJS, liderazgo y protagonismo juvenil)?',
+        criteria: 'ESA 3.4 · PEPSAL: Dimensión CEP · Experiencia Asociativa',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-5',
+        text: '¿Cómo evalúas el avance de la Dimensión Vocacional (proyecto de vida y acompañamiento personal)?',
+        criteria: 'ESA 3.1 · PEPSAL: Dimensión CEP · Vocacional y Reto 03',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-6',
+        text: '¿Qué tanto se han atendido los retos de Salud Mental, Entornos Seguros y Sana Convivencia?',
+        criteria: 'ESA 3.3 · PEPSAL: Retos 01 y 02 · Bienestar y protección',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-7',
+        text: '¿Cómo calificas la corresponsabilidad con las Familias y el Compromiso Social / Misionero?',
+        criteria: 'ESA 3.2 / 4.3 · PEPSAL: Reto 07 · Familia y compromiso social',
+        type: 'rating',
+        required: true,
+      },
+      {
+        id: 'q-pep-8',
+        text: '¿Consideras que el trabajo articulado del Núcleo de la CEP está dando seguimiento oportuno al PEPSAL?',
+        criteria: 'ESA 4.1 · PEPSAL: Reto 08 · Corresponsabilidad y seguimiento CEP',
+        type: 'yesno',
+        required: true,
+      },
+      {
+        id: 'q-pep-9',
+        text: 'Principales logros, frutos o buenas prácticas del PEPSAL que observas en tu plantel',
+        criteria: 'ESA 4.1 · PEPSAL: Evidencias de logro del ciclo 26–27',
+        type: 'text',
+        required: false,
+      },
+      {
+        id: 'q-pep-10',
+        text: 'Retos pendientes, áreas de oportunidad o ajustes prioritarios para el siguiente periodo',
+        criteria: 'ESA 4.1 · PEPSAL: Reto 08 · Plan de mejora continua del PEPSAL',
         type: 'text',
         required: false,
       },

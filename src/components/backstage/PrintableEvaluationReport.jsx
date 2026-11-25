@@ -16,6 +16,7 @@ export function PrintableEvaluationReport({ report }) {
     count,
     avg,
     audiences = [],
+    planteles = [],
     questionStats = [],
     comments = [],
     filterNote = '',
@@ -123,6 +124,47 @@ export function PrintableEvaluationReport({ report }) {
           </table>
         </div>
       )}
+
+      {/* Desglose por Plantel (eventos inter-planteles) */}
+      {planteles.length > 0 &&
+        (planteles.length > 1 ||
+          (plantel === 'General' && planteles.some((p) => p.label !== 'General'))) && (
+          <div className="mb-5">
+            <h2 className="text-xs font-black uppercase tracking-wider text-[#1A235A] mb-2">
+              Participación por Plantel
+            </h2>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-700 text-white">
+                  <th className="border border-slate-300 px-3 py-1.5 text-left font-bold">
+                    Plantel del Participante
+                  </th>
+                  <th className="border border-slate-300 px-3 py-1.5 text-center font-bold w-28">
+                    Respuestas
+                  </th>
+                  <th className="border border-slate-300 px-3 py-1.5 text-center font-bold w-28">
+                    Promedio (1–5)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {planteles.map((pl) => (
+                  <tr key={pl.label} className="even:bg-slate-50">
+                    <td className="border border-slate-300 px-3 py-1.5 font-semibold text-slate-800">
+                      {pl.label}
+                    </td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-center font-bold">
+                      {pl.count}
+                    </td>
+                    <td className="border border-slate-300 px-3 py-1.5 text-center font-black text-[#2B3890]">
+                      {pl.avg} / 5
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
       {/* Gráficas por Pregunta */}
       {questionStats.length > 0 && (

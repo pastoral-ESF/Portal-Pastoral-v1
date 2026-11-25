@@ -366,6 +366,26 @@ export default function App() {
     setDb(updated);
   };
 
+  const handleCreateCustomEvaluation = (item) => {
+    const id = `eval-inst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newItem = {
+      ...item,
+      id,
+      source: 'custom-eval',
+      category: 'Institucional / PEPSAL',
+    };
+    const updated = storageService.saveCustomEvaluation(newItem);
+    setDb(updated);
+    addToast('Evaluación institucional creada. Configura destinatarios y QR.');
+    return newItem;
+  };
+
+  const handleDeleteCustomEvaluation = (evalId) => {
+    const updated = storageService.deleteCustomEvaluation(evalId);
+    setDb(updated);
+    addToast('Evaluación institucional eliminada de la lista', 'info');
+  };
+
   const handleSaveQuickEvent = (event) => {
     const updated = storageService.saveQuickEvent(event);
     setDb(updated);
@@ -471,7 +491,7 @@ export default function App() {
         {mode === 'evaluate' && evalRoute && (
           <PublicEvaluationView
             event={
-              allUnifiedEvents.find(
+              [...allUnifiedEvents, ...(db.customEvaluations || [])].find(
                 (e) => e.id === evalRoute.eventId || e.linkedQuickEventId === evalRoute.eventId
               ) || null
             }
@@ -603,9 +623,14 @@ export default function App() {
             {backstageTab === 'evaluacion' && isPastoralTeam && (
               <EvaluationCenterView
                 templates={db.evaluationTemplates || []}
+                customEvaluations={db.customEvaluations || []}
+                eventEvaluationConfigs={db.eventEvaluationConfigs || {}}
                 canEditTemplates={isFullAdmin}
                 restrictedPlantel={auxPlantel}
                 onSaveTemplates={handleSaveEvaluationTemplates}
+                onCreateCustomEvaluation={handleCreateCustomEvaluation}
+                onDeleteCustomEvaluation={handleDeleteCustomEvaluation}
+                onOpenEvaluation={(ev) => setEvaluatingEvent(ev)}
                 onPrintReport={handlePrintEvaluationReport}
                 onToast={addToast}
               />

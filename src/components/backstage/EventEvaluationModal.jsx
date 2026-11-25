@@ -27,9 +27,17 @@ const DEFAULT_EVENT_AUDIENCES = [
   'Equipo Organizador',
 ];
 
-function getSuggestedTemplateId(audience, templates = []) {
+function getSuggestedTemplateId(audience, templates = [], eventTitle = '') {
   const findById = (id) => templates.find((t) => t.id === id)?.id;
   const lower = String(audience || '').toLowerCase();
+  const titleLower = String(eventTitle || '').toLowerCase();
+  if (
+    titleLower.includes('pepsal') ||
+    lower.includes('cep') ||
+    lower.includes('agente')
+  ) {
+    return findById('tpl-pepsal') || templates[0]?.id || '';
+  }
   if (lower.includes('padre') || lower.includes('madre') || lower.includes('familia')) {
     return findById('tpl-familias') || templates[0]?.id || '';
   }
@@ -48,6 +56,11 @@ function getSuggestedTemplateId(audience, templates = []) {
   return findById('tpl-fe') || templates[0]?.id || '';
 }
 
+function isInterPlantelEvent(event) {
+  const p = String(event?.plantel || 'General').trim();
+  return !['Glandorff', 'Kennedy', 'Cordilleras'].includes(p);
+}
+
 export function EventEvaluationModal({
   open,
   event,
@@ -59,6 +72,7 @@ export function EventEvaluationModal({
   onToast,
 }) {
   const [enabled, setEnabled] = useState(true);
+  const [askPlantel, setAskPlantel] = useState(false);
   const [selectedAudiences, setSelectedAudiences] = useState(DEFAULT_EVENT_AUDIENCES);
   const [audienceTemplateMap, setAudienceTemplateMap] = useState({});
   const [customAudience, setCustomAudience] = useState('');
@@ -68,16 +82,23 @@ export function EventEvaluationModal({
   useEffect(() => {
     if (!open || !event) return;
     setEnabled(config?.enabled ?? true);
+    setAskPlantel(
+      typeof config?.askPlantel === 'boolean' ? config.askPlantel : isInterPlantelEvent(event)
+    );
+    const isPepsalOrCustom =
+      event.source === 'custom-eval' || /pepsal|cep/i.test(event.title || '');
     const initialAudiences =
       Array.isArray(config?.audiences) && config.audiences.length > 0
         ? config.audiences
+        : isPepsalOrCustom
+        ? ['Núcleo de la CEP', 'Agente de Pastoral', 'Docente / Colaborador']
         : DEFAULT_EVENT_AUDIENCES;
     setSelectedAudiences(initialAudiences);
 
     const nextMap = { ...(config?.audienceTemplateMap || {}) };
     initialAudiences.forEach((aud) => {
       if (!nextMap[aud] || !templates.some((t) => t.id === nextMap[aud])) {
-        nextMap[aud] = getSuggestedTemplateId(aud, templates);
+        nextMap[aud] = getSuggestedTemplateId(aud, templates, event.title);
       }
     });
     setAudienceTemplateMap(nextMap);
@@ -151,6 +172,7 @@ export function EventEvaluationModal({
 
     onSaveConfig(event.id, {
       enabled,
+      askPlantel,
       audiences: finalAudiences,
       audienceTemplateMap: finalMap,
       templateIds: uniqueTemplateIds.length
@@ -324,6 +346,24 @@ export function EventEvaluationModal({
               </div>
             ))}
           </div>
+
+          <label className="flex items-start gap-2.5 rounded-2xl bg-slate-50 border border-slate-200 px-3.5 py-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={askPlantel}
+              onChange={(e) => setAskPlantel(e.target.checked)}
+              className="mt-0.5 rounded border-slate-300 text-pastoral focus:ring-pastoral"
+            />
+            <div className="text-xs">
+              <div className="font-extrabold text-slate-800">
+                Preguntar plantel del participante (Glandorff · Kennedy · Cordilleras · Otro)
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Ideal para eventos inter-planteles o generales; permite ver cuántas respuestas y
+                qué promedio obtuvo cada plantel.
+              </div>
+            </div>
+          </label>
 
           <div className="flex justify-end pt-1">
             <button

@@ -51,6 +51,9 @@ function normalizeDb(parsed = {}) {
     evaluationTemplates: resolveEvaluationTemplates(parsed),
     eventEvaluationConfigs:
       parsed.eventEvaluationConfigs ?? structuredClone(SEED_DATA.eventEvaluationConfigs),
+    customEvaluations: Array.isArray(parsed.customEvaluations)
+      ? parsed.customEvaluations
+      : [],
   };
 }
 
@@ -405,6 +408,33 @@ export const storageService = {
       throw new Error('El archivo de respaldo no tiene un formato válido.');
     }
     return writeDb(rawDb);
+  },
+
+  // --- EVALUACIONES INSTITUCIONALES / LIBRES (SIN CALENDARIO) ---
+  saveCustomEvaluation(item) {
+    const db = readDb();
+    const list = Array.isArray(db.customEvaluations) ? db.customEvaluations : [];
+    if (item.id && list.some((e) => e.id === item.id)) {
+      db.customEvaluations = list.map((e) =>
+        e.id === item.id ? { ...e, ...item, updatedAt: new Date().toISOString() } : e
+      );
+    } else {
+      const created = {
+        ...item,
+        id: item.id || generateId('eval-inst'),
+        source: 'custom-eval',
+        category: item.category || 'Institucional / PEPSAL',
+        createdAt: new Date().toISOString(),
+      };
+      db.customEvaluations = [created, ...list];
+    }
+    return writeDb(db);
+  },
+
+  deleteCustomEvaluation(evalId) {
+    const db = readDb();
+    db.customEvaluations = (db.customEvaluations || []).filter((e) => e.id !== evalId);
+    return writeDb(db);
   },
 };
 

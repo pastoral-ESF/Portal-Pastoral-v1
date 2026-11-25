@@ -105,13 +105,13 @@ export const evaluationService = {
   },
 };
 
-export function buildEvaluationLink(eventId, templateId = '') {
+export function buildEvaluationLink(eventId, { templateId = '', audience = '' } = {}) {
   if (typeof window === 'undefined') return '';
   const base = `${window.location.origin}${window.location.pathname}`;
-  const hash = templateId
-    ? `#evaluar=${encodeURIComponent(eventId)}&plantilla=${encodeURIComponent(templateId)}`
-    : `#evaluar=${encodeURIComponent(eventId)}`;
-  return `${base}${hash}`;
+  const parts = [`evaluar=${encodeURIComponent(eventId)}`];
+  if (templateId) parts.push(`plantilla=${encodeURIComponent(templateId)}`);
+  if (audience) parts.push(`destinatario=${encodeURIComponent(audience)}`);
+  return `${base}#${parts.join('&')}`;
 }
 
 export function buildQrImageUrl(targetUrl, size = 240) {

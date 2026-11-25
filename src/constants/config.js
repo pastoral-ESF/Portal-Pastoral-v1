@@ -51,6 +51,15 @@ export const CARTA_PLANTEL_OPTIONS = [
   'Otro',
 ];
 
+export const EVALUATION_AUDIENCE_OPTIONS = [
+  'Alumno / Participante',
+  'Docente / Colaborador',
+  'Padre / Madre de Familia',
+  'Equipo Organizador',
+  'Animador MJS',
+  'Padrinos / Invitados',
+];
+
 export const EVENT_CATEGORIES = [
   'Pastoral',
   'Misa',

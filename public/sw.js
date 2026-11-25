@@ -1,5 +1,5 @@
 // Service Worker ligero (Network-First sin caché rígida para HTML) para PWA
-const CACHE_NAME = 'pastoral-esfer-pwa-v3';
+const CACHE_NAME = 'pastoral-esfer-pwa-v4';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

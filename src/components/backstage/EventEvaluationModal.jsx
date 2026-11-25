@@ -8,13 +8,45 @@ import {
   CheckCircle2,
   Power,
   MessageCircle,
+  Printer,
+  Users,
+  Plus,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
+import { EVALUATION_AUDIENCE_OPTIONS } from '../../constants/config';
 import {
   buildEvaluationLink,
   buildQrImageUrl,
   evaluationService,
 } from '../../services/evaluationService';
+
+const DEFAULT_EVENT_AUDIENCES = [
+  'Alumno / Participante',
+  'Padre / Madre de Familia',
+  'Docente / Colaborador',
+  'Equipo Organizador',
+];
+
+function getSuggestedTemplateId(audience, templates = []) {
+  const findById = (id) => templates.find((t) => t.id === id)?.id;
+  const lower = String(audience || '').toLowerCase();
+  if (lower.includes('padre') || lower.includes('madre') || lower.includes('familia')) {
+    return findById('tpl-familias') || templates[0]?.id || '';
+  }
+  if (lower.includes('docente') || lower.includes('colaborador') || lower.includes('maestro')) {
+    return findById('tpl-docentes') || templates[0]?.id || '';
+  }
+  if (lower.includes('organizador') || lower.includes('logística') || lower.includes('logistica')) {
+    return findById('tpl-logistica') || templates[0]?.id || '';
+  }
+  if (lower.includes('animador') || lower.includes('mjs')) {
+    return findById('tpl-mjs') || templates[0]?.id || '';
+  }
+  if (lower.includes('padrino') || lower.includes('sacramento')) {
+    return findById('tpl-sacramentos') || templates[0]?.id || '';
+  }
+  return findById('tpl-fe') || templates[0]?.id || '';
+}
 
 export function EventEvaluationModal({
   open,
@@ -23,19 +55,33 @@ export function EventEvaluationModal({
   templates = [],
   onClose,
   onSaveConfig,
+  onPrintQrPoster,
   onToast,
 }) {
   const [enabled, setEnabled] = useState(true);
-  const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedAudiences, setSelectedAudiences] = useState(DEFAULT_EVENT_AUDIENCES);
+  const [audienceTemplateMap, setAudienceTemplateMap] = useState({});
+  const [customAudience, setCustomAudience] = useState('');
   const [responses, setResponses] = useState([]);
   const [loadingResp, setLoadingResp] = useState(false);
 
   useEffect(() => {
     if (!open || !event) return;
     setEnabled(config?.enabled ?? true);
-    setSelectedIds(
-      config?.templateIds?.length ? config.templateIds : [templates[0]?.id].filter(Boolean)
-    );
+    const initialAudiences =
+      Array.isArray(config?.audiences) && config.audiences.length > 0
+        ? config.audiences
+        : DEFAULT_EVENT_AUDIENCES;
+    setSelectedAudiences(initialAudiences);
+
+    const nextMap = { ...(config?.audienceTemplateMap || {}) };
+    initialAudiences.forEach((aud) => {
+      if (!nextMap[aud] || !templates.some((t) => t.id === nextMap[aud])) {
+        nextMap[aud] = getSuggestedTemplateId(aud, templates);
+      }
+    });
+    setAudienceTemplateMap(nextMap);
+    setCustomAudience('');
 
     setLoadingResp(true);
     evaluationService
@@ -58,22 +104,63 @@ export function EventEvaluationModal({
 
   if (!open || !event) return null;
 
-  const toggleTemplate = (tplId) => {
-    setSelectedIds((prev) =>
-      prev.includes(tplId) ? prev.filter((id) => id !== tplId) : [...prev, tplId]
-    );
+  const toggleAudience = (aud) => {
+    setSelectedAudiences((prev) => {
+      if (prev.includes(aud)) {
+        return prev.filter((item) => item !== aud);
+      }
+      setAudienceTemplateMap((prevMap) => ({
+        ...prevMap,
+        [aud]: prevMap[aud] || getSuggestedTemplateId(aud, templates),
+      }));
+      return [...prev, aud];
+    });
   };
 
+  const handleTemplateForAudienceChange = (aud, tplId) => {
+    setAudienceTemplateMap((prev) => ({ ...prev, [aud]: tplId }));
+  };
+
+  const handleAddCustomAudience = () => {
+    const clean = customAudience.trim();
+    if (!clean) return;
+    if (!selectedAudiences.includes(clean)) {
+      setSelectedAudiences((prev) => [...prev, clean]);
+      setAudienceTemplateMap((prev) => ({
+        ...prev,
+        [clean]: prev[clean] || getSuggestedTemplateId(clean, templates),
+      }));
+    }
+    setCustomAudience('');
+  };
+
+  const allAudienceChoices = Array.from(
+    new Set([...EVALUATION_AUDIENCE_OPTIONS, ...selectedAudiences])
+  );
+
   const handleSave = () => {
-    const finalIds = selectedIds.length ? selectedIds : [templates[0]?.id].filter(Boolean);
+    const finalAudiences = selectedAudiences.length
+      ? selectedAudiences
+      : ['Alumno / Participante'];
+    const finalMap = {};
+    finalAudiences.forEach((aud) => {
+      finalMap[aud] =
+        audienceTemplateMap[aud] || getSuggestedTemplateId(aud, templates) || templates[0]?.id || '';
+    });
+    const uniqueTemplateIds = Array.from(new Set(Object.values(finalMap).filter(Boolean)));
+
     onSaveConfig(event.id, {
       enabled,
-      templateIds: finalIds,
+      audiences: finalAudiences,
+      audienceTemplateMap: finalMap,
+      templateIds: uniqueTemplateIds.length
+        ? uniqueTemplateIds
+        : [templates[0]?.id].filter(Boolean),
     });
     if (onToast) {
       onToast(
         enabled
-          ? 'Evaluación habilitada y enlace/QR listo para compartir'
+          ? 'Evaluación guardada: cada destinatario abrirá su plantilla asignada'
           : 'Evaluación cerrada para este evento'
       );
     }
@@ -94,8 +181,6 @@ export function EventEvaluationModal({
     } — Pastoral ESFER Salesianos:\n${url}`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
-
-  const activeTemplates = templates.filter((t) => selectedIds.includes(t.id));
 
   return (
     <Modal
@@ -141,44 +226,103 @@ export function EventEvaluationModal({
           </button>
         </div>
 
-        {/* Selección de 1 o varias plantillas (multi-destinatario) */}
-        <div className="space-y-2.5">
+        {/* 1. Destinatarios habilitados para este evento */}
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-              1. Elige las plantillas / destinatarios para este evento (puedes marcar varias)
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 text-pastoral" />
+              <span>1. Elige los destinatarios que evaluarán este evento</span>
             </h3>
             <span className="text-xs font-bold text-pastoral">
-              {selectedIds.length} seleccionada(s)
+              {selectedAudiences.length} activo(s)
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
-            {templates.map((tpl) => {
-              const checked = selectedIds.includes(tpl.id);
+          <div className="flex flex-wrap gap-2">
+            {allAudienceChoices.map((aud) => {
+              const active = selectedAudiences.includes(aud);
               return (
-                <label
-                  key={tpl.id}
-                  className={`flex items-start gap-2.5 rounded-2xl border p-3 cursor-pointer transition-all ${
-                    checked
-                      ? 'bg-pastoral/5 border-pastoral ring-1 ring-pastoral/20'
-                      : 'bg-white border-slate-200 hover:border-pastoral/40'
+                <button
+                  key={aud}
+                  type="button"
+                  onClick={() => toggleAudience(aud)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-bold transition-all ${
+                    active
+                      ? 'bg-pastoral text-white border-pastoral shadow-sm'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-pastoral/40'
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleTemplate(tpl.id)}
-                    className="mt-0.5 rounded border-slate-300 text-pastoral focus:ring-pastoral"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-extrabold text-slate-900">{tpl.name}</div>
-                    <div className="text-[11px] text-slate-500">
-                      {tpl.audienceLabel} · {tpl.questions?.length || 0} preguntas
-                    </div>
-                  </div>
-                </label>
+                  <span>{active ? '✓' : '+'}</span>
+                  <span>{aud}</span>
+                </button>
               );
             })}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={customAudience}
+              onChange={(e) => setCustomAudience(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddCustomAudience();
+                }
+              }}
+              placeholder="Agregar otro destinatario (ej. Exalumnos, Directivos)..."
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs focus:bg-white focus:outline-none focus:border-pastoral"
+            />
+            <button
+              type="button"
+              onClick={handleAddCustomAudience}
+              className="inline-flex items-center gap-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 text-xs font-bold"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Agregar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 2. Plantilla de preguntas asignada a cada destinatario */}
+        <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <div>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
+              2. Preguntas (plantilla) que responderá cada destinatario
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Cada perfil recibe preguntas adaptadas a su propia experiencia en este evento.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {selectedAudiences.map((aud) => (
+              <div
+                key={aud}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-3.5 py-2.5"
+              >
+                <span className="text-xs font-extrabold text-pastoral-deep flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-pastoral shrink-0" />
+                  <span>{aud}</span>
+                  {/organizador|logística|logistica/i.test(aud) && (
+                    <span className="rounded-full bg-amber-100 text-amber-900 px-2 py-0.5 text-[10px] font-bold">
+                      🔒 Requiere sesión
+                    </span>
+                  )}
+                </span>
+                <select
+                  value={audienceTemplateMap[aud] || getSuggestedTemplateId(aud, templates)}
+                  onChange={(e) => handleTemplateForAudienceChange(aud, e.target.value)}
+                  className="sm:w-80 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:border-pastoral"
+                >
+                  {templates.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name} ({tpl.questions?.length || 0} preg.)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
 
           <div className="flex justify-end pt-1">
@@ -209,8 +353,8 @@ export function EventEvaluationModal({
                 <span>Enlace y QR Universal del Evento</span>
               </div>
               <p className="text-xs text-blue-100 leading-relaxed">
-                {activeTemplates.length > 1
-                  ? 'Al escanear este QR, el participante elegirá primero su perfil (ej. Alumno, Papá o Docente) y contestará sus preguntas.'
+                {selectedAudiences.length > 1
+                  ? 'Al escanear este QR, el participante elegirá primero su destinatario (ej. Alumno, Docente o Equipo Organizador) y contestará las preguntas.'
                   : 'Al escanear este QR, el participante entra directo a las preguntas sin iniciar sesión.'}
               </p>
               <div className="flex flex-wrap justify-center sm:justify-start gap-2">
@@ -240,43 +384,91 @@ export function EventEvaluationModal({
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>Probar</span>
                 </a>
+                {onPrintQrPoster && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const publicAudiences = selectedAudiences.filter(
+                        (a) => !/organizador|logística|logistica/i.test(a)
+                      );
+                      onPrintQrPoster({
+                        eventTitle: event.title,
+                        eventDate: event.date || '',
+                        plantel: event.plantel || 'General',
+                        url: universalUrl,
+                        audienceLabel:
+                          publicAudiences.length === 1 ? publicAudiences[0] : '',
+                        audiences: publicAudiences,
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white text-pastoral-deep hover:bg-amber-50 font-extrabold text-xs px-3.5 py-2 shadow-sm"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>Imprimir cartel QR</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Enlaces directos por destinatario (cuando hay 2+ plantillas) */}
-          {activeTemplates.length > 1 && (
+          {/* Enlaces y carteles directos por destinatario (cuando hay 2+ destinatarios) */}
+          {selectedAudiences.length > 1 && (
             <div className="pt-3 border-t border-white/15 space-y-2">
               <div className="text-[11px] font-bold text-blue-200 uppercase tracking-wider">
-                Enlaces directos por destinatario (sin pantalla de selección)
+                Enlaces y carteles directos por destinatario (sin pantalla de selección)
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {activeTemplates.map((tpl) => {
-                  const directUrl = buildEvaluationLink(event.id, tpl.id);
+                {selectedAudiences.map((aud) => {
+                  const mappedTplId =
+                    audienceTemplateMap[aud] || getSuggestedTemplateId(aud, templates);
+                  const directUrl = buildEvaluationLink(event.id, {
+                    audience: aud,
+                    templateId: mappedTplId,
+                  });
                   return (
                     <div
-                      key={tpl.id}
+                      key={aud}
                       className="flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs"
                     >
-                      <span className="font-bold truncate">{tpl.audienceLabel}</span>
+                      <span className="font-bold truncate">
+                        {/organizador|logística|logistica/i.test(aud) ? '🔒 ' : ''}
+                        {aud}
+                      </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
-                          onClick={() =>
-                            copyText(directUrl, `Enlace para ${tpl.audienceLabel} copiado`)
-                          }
+                          onClick={() => copyText(directUrl, `Enlace para ${aud} copiado`)}
                           className="rounded-lg bg-white/15 hover:bg-white/25 px-2 py-1 text-[11px] font-bold"
                         >
                           Copiar
                         </button>
                         <a
-                          href={buildWhatsappShareUrl(directUrl, tpl.audienceLabel)}
+                          href={buildWhatsappShareUrl(directUrl, aud)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="rounded-lg bg-[#25D366] px-2 py-1 text-[11px] font-bold"
                         >
                           WA
                         </a>
+                        {onPrintQrPoster && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPrintQrPoster({
+                                eventTitle: event.title,
+                                eventDate: event.date || '',
+                                plantel: event.plantel || 'General',
+                                url: directUrl,
+                                audienceLabel: aud,
+                                audiences: [aud],
+                              })
+                            }
+                            className="rounded-lg bg-white text-pastoral-deep hover:bg-amber-50 p-1"
+                            title={`Imprimir cartel QR exclusivo para ${aud}`}
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

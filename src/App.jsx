@@ -26,6 +26,9 @@ import { CartaPlannerView } from './components/backstage/CartaPlannerView';
 import { PepsalView } from './components/backstage/PepsalView';
 import { PrintableCarta } from './components/backstage/PrintableCarta';
 import { PrintablePlantaFisica } from './components/backstage/PrintablePlantaFisica';
+import { PrintableEvaluationReport } from './components/backstage/PrintableEvaluationReport';
+import { PrintableQrPoster } from './components/backstage/PrintableQrPoster';
+import { buildQrImageUrl } from './services/evaluationService';
 import { CalendarManagerView } from './components/backstage/CalendarManagerView';
 import { EvaluationCenterView } from './components/backstage/EvaluationCenterView';
 import { EventEvaluationModal } from './components/backstage/EventEvaluationModal';
@@ -44,6 +47,7 @@ function parseEvaluationHash() {
   return {
     eventId,
     templateId: params.get('plantilla') || '',
+    audience: params.get('destinatario') || '',
   };
 }
 
@@ -237,6 +241,29 @@ export default function App() {
     setTimeout(() => {
       window.print();
     }, 120);
+  };
+
+  const handlePrintEvaluationReport = (reportData) => {
+    setPrintJob({ type: 'evalReport', data: reportData });
+    setTimeout(() => {
+      window.print();
+    }, 160);
+  };
+
+  const handlePrintQrPoster = (posterData) => {
+    setPrintJob({ type: 'qrPoster', data: posterData });
+    let printed = false;
+    const triggerPrint = () => {
+      if (printed) return;
+      printed = true;
+      setTimeout(() => window.print(), 120);
+    };
+    // Precargar la imagen del código QR antes de abrir el diálogo de impresión
+    const img = new Image();
+    img.onload = triggerPrint;
+    img.onerror = triggerPrint;
+    img.src = buildQrImageUrl(posterData.url, 420);
+    setTimeout(triggerPrint, 1200);
   };
 
   // --- Handlers de Persistencia ---
@@ -433,9 +460,11 @@ export default function App() {
 
   return (
     <>
-      {/* Documento limpio solo visible al imprimir (Carta Descriptiva o Planta Física) */}
+      {/* Documento limpio solo visible al imprimir (Carta Descriptiva, Planta Física, Reporte o Cartel QR) */}
       {printJob?.type === 'carta' && <PrintableCarta carta={printJob.data} />}
       {printJob?.type === 'plantaFisica' && <PrintablePlantaFisica solicitud={printJob.data} />}
+      {printJob?.type === 'evalReport' && <PrintableEvaluationReport report={printJob.data} />}
+      {printJob?.type === 'qrPoster' && <PrintableQrPoster poster={printJob.data} />}
 
       {/* Interfaz principal oculta durante @media print */}
       <div className="no-print min-h-screen">
@@ -449,11 +478,9 @@ export default function App() {
             config={(db.eventEvaluationConfigs || {})[evalRoute.eventId]}
             templates={db.evaluationTemplates || []}
             preselectedTemplateId={evalRoute.templateId}
-            onGoToVisor={() => {
-              window.location.hash = '#visor';
-              setEvalRoute(null);
-              setMode('public');
-            }}
+            preselectedAudience={evalRoute.audience}
+            currentUser={currentUser}
+            onAuthenticatedUser={(user) => setCurrentUser(user)}
           />
         )}
 
@@ -579,6 +606,7 @@ export default function App() {
                 canEditTemplates={isFullAdmin}
                 restrictedPlantel={auxPlantel}
                 onSaveTemplates={handleSaveEvaluationTemplates}
+                onPrintReport={handlePrintEvaluationReport}
                 onToast={addToast}
               />
             )}
@@ -644,6 +672,7 @@ export default function App() {
               templates={db.evaluationTemplates || []}
               onClose={() => setEvaluatingEvent(null)}
               onSaveConfig={handleSaveEventEvaluationConfig}
+              onPrintQrPoster={handlePrintQrPoster}
               onToast={addToast}
             />
           </BackstageShell>

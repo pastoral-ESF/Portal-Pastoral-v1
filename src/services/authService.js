@@ -6,6 +6,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, firestoreDb, isFirebaseConfigured } from './firebase';
@@ -157,6 +159,38 @@ export const authService = {
     }
 
     return sessionUser;
+  },
+
+  async verifyCurrentPassword(password) {
+    const cleanPassword = (password || '').trim();
+    if (!cleanPassword) {
+      throw new Error('Ingresa tu contraseña para confirmar.');
+    }
+
+    if (isFirebaseConfigured && auth) {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        throw new Error('No hay una sesión activa válida. Vuelve a iniciar sesión.');
+      }
+      try {
+        const credential = EmailAuthProvider.credential(user.email, cleanPassword);
+        await reauthenticateWithCredential(user, credential);
+        return true;
+      } catch {
+        throw new Error('Contraseña incorrecta. No se eliminó ninguna respuesta.');
+      }
+    }
+
+    // Respaldo modo demo local
+    try {
+      const raw = window.localStorage.getItem(LOCAL_SESSION_KEY);
+      const localUser = raw ? JSON.parse(raw) : null;
+      const found = DEMO_USERS.find((u) => u.email === localUser?.email);
+      if (found && found.password === cleanPassword) return true;
+    } catch {
+      // ignore
+    }
+    throw new Error('Contraseña incorrecta. No se eliminó ninguna respuesta.');
   },
 
   async logout() {

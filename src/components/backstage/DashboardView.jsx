@@ -12,6 +12,7 @@ import {
   Lock,
   Sparkles,
   BookOpen,
+  Clock,
 } from 'lucide-react';
 import {
   PLANTELES,
@@ -20,6 +21,20 @@ import {
   AGUINALDO_ACTUAL,
 } from '../../constants/config';
 import { Modal } from '../common/Modal';
+
+function getLocalTodayIso() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isPastEvent(ev, todayIso) {
+  const effectiveEnd = ev?.endDate || ev?.date || '';
+  if (!effectiveEnd) return false;
+  return effectiveEnd < todayIso;
+}
 
 export function DashboardView({
   cartas,
@@ -34,18 +49,19 @@ export function DashboardView({
 }) {
   const [plantelFilter, setPlantelFilter] = useState('Todos');
   const [onlyCurrentMonth, setOnlyCurrentMonth] = useState(true);
+  const [showPastEvents, setShowPastEvents] = useState(false);
   const [aguinaldoOpen, setAguinaldoOpen] = useState(false);
 
   const now = new Date();
-  const currentMonthKey = now.toISOString().slice(0, 7);
+  const todayIso = getLocalTodayIso();
+  const currentMonthKey = todayIso.slice(0, 7);
   const currentMonthLabel = now.toLocaleDateString('es-MX', {
     month: 'long',
     year: 'numeric',
   });
 
   const kpis = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const upcomingCount = unifiedEvents.filter((e) => (e.date || '') >= today).length;
+    const upcomingCount = unifiedEvents.filter((e) => !isPastEvent(e, todayIso)).length;
     const inPlanningCount = cartas.filter((c) => c.status === 'En planeación').length;
     const approvedCount = cartas.filter(
       (c) => c.status === 'Aprobado' || c.status === 'Realizado'
@@ -85,7 +101,7 @@ export function DashboardView({
     ];
   }, [cartas, unifiedEvents, messages, onGoToEvaluation, onGoToInbox]);
 
-  const filteredEvents = useMemo(() => {
+  const scopedEvents = useMemo(() => {
     return unifiedEvents.filter((e) => {
       if (plantelFilter !== 'Todos' && e.plantel !== plantelFilter) return false;
       if (onlyCurrentMonth) {
@@ -96,6 +112,16 @@ export function DashboardView({
       return true;
     });
   }, [unifiedEvents, plantelFilter, onlyCurrentMonth, currentMonthKey]);
+
+  const pastEventsCount = useMemo(
+    () => scopedEvents.filter((e) => isPastEvent(e, todayIso)).length,
+    [scopedEvents, todayIso]
+  );
+
+  const filteredEvents = useMemo(() => {
+    if (showPastEvents) return scopedEvents;
+    return scopedEvents.filter((e) => !isPastEvent(e, todayIso));
+  }, [scopedEvents, showPastEvents, todayIso]);
 
   return (
     <div className="space-y-6">
@@ -216,11 +242,33 @@ export function DashboardView({
             </div>
             <p className="text-xs text-slate-500">
               {onlyCurrentMonth
-                ? 'Mostrando únicamente los eventos del mes en curso.'
-                : 'Mostrando todos los eventos registrados del ciclo.'}
+                ? showPastEvents
+                  ? 'Mostrando todo el mes en curso (eventos pasados en gris).'
+                  : 'Mostrando los eventos del mes en curso a partir de hoy.'
+                : showPastEvents
+                ? 'Mostrando todo el ciclo (eventos pasados en gris).'
+                : 'Mostrando los eventos próximos de todo el ciclo a partir de hoy.'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            {pastEventsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowPastEvents((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                  showPastEvents
+                    ? 'bg-slate-600 text-white border-slate-600'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:border-slate-400'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {showPastEvents
+                    ? `Ocultar pasados (${pastEventsCount})`
+                    : `Ver pasados en gris (${pastEventsCount})`}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setOnlyCurrentMonth((prev) => !prev)}
@@ -253,14 +301,31 @@ export function DashboardView({
           {filteredEvents.map((ev) => {
             const linkedCarta =
               ev.source === 'carta' ? cartas.find((c) => c.id === ev.cartaId) : null;
+            const past = isPastEvent(ev, todayIso);
             return (
               <div
                 key={`${ev.source}-${ev.id}`}
-                className="rounded-2xl border border-slate-200/80 bg-slate-50/60 hover:bg-white p-4 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                className={`rounded-2xl border p-4 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+                  past
+                    ? 'border-slate-200/70 bg-slate-100/70 opacity-60 saturate-50'
+                    : 'border-slate-200/80 bg-slate-50/60 hover:bg-white'
+                }`}
               >
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-extrabold text-pastoral">{ev.date}</span>
+                    {past && (
+                      <span className="inline-flex items-center rounded-full bg-slate-200 text-slate-600 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">
+                        Pasado
+                      </span>
+                    )}
+                    {ev.date === todayIso && (
+                      <span className="inline-flex items-center rounded-full bg-pastoral-gold text-pastoral-deep px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider">
+                        HOY
+                      </span>
+                    )}
+                    <span className={`text-xs font-extrabold ${past ? 'text-slate-500' : 'text-pastoral'}`}>
+                      {ev.date}
+                    </span>
                     <span
                       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
                         PLANTEL_BADGE_STYLES[ev.plantel] || PLANTEL_BADGE_STYLES.General

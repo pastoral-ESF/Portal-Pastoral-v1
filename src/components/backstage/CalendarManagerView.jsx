@@ -64,6 +64,20 @@ function formatHumanDate(dateStr) {
   return `${d} de ${MONTH_NAMES[m - 1]} de ${y}`;
 }
 
+function getLocalTodayIso() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isPastEvent(ev, todayIso) {
+  const effectiveEnd = ev?.endDate || ev?.date || '';
+  if (!effectiveEnd) return false;
+  return effectiveEnd < todayIso;
+}
+
 const BLANK_EVENT = {
   id: null,
   title: '',
@@ -98,7 +112,8 @@ export function CalendarManagerView({
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [visibilityFilter, setVisibilityFilter] = useState('todos'); // 'todos' | 'publico' | 'interno'
   const [onlyPastoral, setOnlyPastoral] = useState(false);
-  const [monthFilter, setMonthFilter] = useState(() => new Date().toISOString().slice(0, 7)); // Por defecto: mes en curso ('YYYY-MM')
+  const [monthFilter, setMonthFilter] = useState(() => getLocalTodayIso().slice(0, 7)); // Por defecto: mes en curso ('YYYY-MM')
+  const [showPastEvents, setShowPastEvents] = useState(false); // Por defecto oculta eventos pasados (se pueden ver en gris)
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleLimit, setVisibleLimit] = useState(60);
   const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'calendar'
@@ -110,7 +125,7 @@ export function CalendarManagerView({
     return { year: now.getFullYear(), month: now.getMonth() };
   });
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = getLocalTodayIso();
   const todayFormatted = new Date().toLocaleDateString('es-MX', {
     weekday: 'long',
     day: 'numeric',
@@ -200,7 +215,7 @@ export function CalendarManagerView({
   }, [unifiedEvents, plantelFilter, categoryFilter, visibilityFilter, onlyPastoral, searchQuery]);
 
   // Filtro completo (incluye mes) usado por la Vista Tarjetas
-  const filtered = useMemo(() => {
+  const monthScopedEvents = useMemo(() => {
     if (monthFilter === 'Todos') return baseFiltered;
     return baseFiltered.filter(
       (e) =>
@@ -208,6 +223,19 @@ export function CalendarManagerView({
         (e.endDate || '').startsWith(monthFilter)
     );
   }, [baseFiltered, monthFilter]);
+
+  // Si el usuario eligió un mes completamente pasado (ej. mes anterior), mostramos sus eventos en gris automáticamente
+  const isViewingPastMonth = monthFilter !== 'Todos' && monthFilter < currentMonthKey;
+
+  const pastEventsCount = useMemo(
+    () => monthScopedEvents.filter((e) => isPastEvent(e, todayIso)).length,
+    [monthScopedEvents, todayIso]
+  );
+
+  const filtered = useMemo(() => {
+    if (showPastEvents || isViewingPastMonth) return monthScopedEvents;
+    return monthScopedEvents.filter((e) => !isPastEvent(e, todayIso));
+  }, [monthScopedEvents, showPastEvents, isViewingPastMonth, todayIso]);
 
   const groupedByMonth = useMemo(() => {
     const slice = filtered.slice(0, visibleLimit);
@@ -462,6 +490,25 @@ export function CalendarManagerView({
               <FileText className="h-3.5 w-3.5" />
               <span>{onlyPastoral ? 'Solo Pastoral (Activo)' : 'Solo Pastoral'}</span>
             </button>
+            {viewMode === 'cards' && !isViewingPastMonth && pastEventsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowPastEvents((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                  showPastEvents
+                    ? 'bg-slate-600 text-white border-slate-600 shadow-sm'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:border-slate-400'
+                }`}
+                title="Mostrar u ocultar eventos que ya pasaron (en gris)"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {showPastEvents
+                    ? `Ocultar pasados (${pastEventsCount})`
+                    : `Ver pasados en gris (${pastEventsCount})`}
+                </span>
+              </button>
+            )}
           </div>
           <span className="text-xs font-bold text-slate-400">
             {viewMode === 'calendar'
@@ -538,20 +585,32 @@ export function CalendarManagerView({
                 {group.events.map((ev) => {
             const isQuick = ev.source === 'quick';
             const rawQuick = isQuick ? quickEvents.find((q) => q.id === ev.id) : null;
+            const past = isPastEvent(ev, todayIso);
 
             return (
               <div
                 key={`${ev.source}-${ev.id}`}
-                className="rounded-3xl bg-white border border-slate-200 p-5 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                className={`rounded-3xl border p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors ${
+                  past
+                    ? 'bg-slate-50/90 border-slate-200/80 opacity-65 saturate-50'
+                    : 'bg-white border-slate-200 shadow-card'
+                }`}
               >
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
+                    {past && (
+                      <span className="inline-flex items-center rounded-full bg-slate-200 text-slate-600 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">
+                        Pasado
+                      </span>
+                    )}
                     {ev.date === todayIso && (
                       <span className="inline-flex items-center rounded-full bg-pastoral-gold text-pastoral-deep px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider">
                         HOY
                       </span>
                     )}
-                    <span className="text-xs font-extrabold text-pastoral">{ev.date}</span>
+                    <span className={`text-xs font-extrabold ${past ? 'text-slate-500' : 'text-pastoral'}`}>
+                      {ev.date}
+                    </span>
                     <span
                       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
                         PLANTEL_BADGE_STYLES[ev.plantel] || PLANTEL_BADGE_STYLES.General
@@ -776,6 +835,8 @@ export function CalendarManagerView({
                   className={`min-h-[84px] sm:min-h-[112px] rounded-2xl border p-1.5 sm:p-2 flex flex-col gap-1 transition-colors ${
                     cell.iso === todayIso
                       ? 'bg-pastoral-gold/10 border-pastoral-gold ring-1 ring-pastoral-gold/40'
+                      : cell.iso < todayIso
+                      ? 'bg-slate-50/80 border-slate-100'
                       : cell.events.length > 0
                       ? 'bg-pastoral/[0.03] border-pastoral/20'
                       : 'bg-white border-slate-100'
@@ -786,6 +847,8 @@ export function CalendarManagerView({
                       className={`text-xs font-extrabold inline-flex items-center justify-center ${
                         cell.iso === todayIso
                           ? 'h-6 w-6 rounded-full bg-pastoral text-white'
+                          : cell.iso < todayIso
+                          ? 'text-slate-400'
                           : cell.events.length > 0
                           ? 'text-pastoral-deep'
                           : 'text-slate-400'
@@ -801,24 +864,29 @@ export function CalendarManagerView({
                   </div>
 
                   <div className="space-y-1 overflow-y-auto max-h-24 no-scrollbar">
-                    {cell.events.map((ev) => (
-                      <button
-                        key={`${ev.source}-${ev.id}`}
-                        type="button"
-                        onClick={() => setSelectedEvent(ev)}
-                        title={`${ev.title} (${ev.plantel} · ${
-                          ev.visibility === 'publico' ? 'Público' : 'Interno'
-                        })`}
-                        className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] sm:text-[11px] font-bold truncate transition-all shadow-sm ${
-                          ev.visibility === 'interno'
-                            ? 'bg-slate-700 text-white hover:bg-slate-800'
-                            : PLANTEL_CHIP_STYLES[ev.plantel] || PLANTEL_CHIP_STYLES.General
-                        }`}
-                      >
-                        {ev.visibility === 'interno' ? '🔒 ' : ''}
-                        {ev.title}
-                      </button>
-                    ))}
+                    {cell.events.map((ev) => {
+                      const pastCell = cell.iso < todayIso;
+                      return (
+                        <button
+                          key={`${ev.source}-${ev.id}`}
+                          type="button"
+                          onClick={() => setSelectedEvent(ev)}
+                          title={`${ev.title} (${ev.plantel} · ${
+                            ev.visibility === 'publico' ? 'Público' : 'Interno'
+                          }${pastCell ? ' · Pasado' : ''})`}
+                          className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] sm:text-[11px] font-bold truncate transition-all ${
+                            pastCell
+                              ? 'bg-slate-200/80 text-slate-500 hover:bg-slate-300/80'
+                              : ev.visibility === 'interno'
+                              ? 'bg-slate-700 text-white hover:bg-slate-800 shadow-sm'
+                              : `${PLANTEL_CHIP_STYLES[ev.plantel] || PLANTEL_CHIP_STYLES.General} shadow-sm`
+                          }`}
+                        >
+                          {ev.visibility === 'interno' ? '🔒 ' : ''}
+                          {ev.title}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )
@@ -835,25 +903,35 @@ export function CalendarManagerView({
                 No hay eventos en este mes con el filtro actual.
               </p>
             ) : (
-              monthEvents.map((ev) => (
-                <div
-                  key={`${ev.source}-${ev.id}`}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-slate-50 border border-slate-200/70 p-3.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedEvent(ev)}
-                    className="text-left flex-1"
+              monthEvents.map((ev) => {
+                const past = isPastEvent(ev, todayIso);
+                return (
+                  <div
+                    key={`${ev.source}-${ev.id}`}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border p-3.5 ${
+                      past
+                        ? 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                        : 'bg-slate-50 border-slate-200/70'
+                    }`}
                   >
-                    <div className="text-xs font-bold text-pastoral">
-                      {formatHumanDate(ev.date)} · {ev.startTime || '09:00'} · {ev.plantel} ·{' '}
-                      {ev.visibility === 'publico' ? 'Público' : 'Interno'}
-                    </div>
-                    <div className="font-extrabold text-slate-900 text-sm">{ev.title}</div>
-                  </button>
-                  <CalendarExportMenu event={ev} compact onToast={onToast} />
-                </div>
-              ))
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEvent(ev)}
+                      className="text-left flex-1"
+                    >
+                      <div className={`text-xs font-bold ${past ? 'text-slate-400' : 'text-pastoral'}`}>
+                        {past ? 'Pasado · ' : ''}
+                        {formatHumanDate(ev.date)} · {ev.startTime || '09:00'} · {ev.plantel} ·{' '}
+                        {ev.visibility === 'publico' ? 'Público' : 'Interno'}
+                      </div>
+                      <div className={`font-extrabold text-sm ${past ? 'text-slate-500' : 'text-slate-900'}`}>
+                        {ev.title}
+                      </div>
+                    </button>
+                    <CalendarExportMenu event={ev} compact onToast={onToast} />
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

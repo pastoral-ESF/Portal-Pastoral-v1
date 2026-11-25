@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { LogoImage } from '../common/LogoImage';
 import { evaluationService } from '../../services/evaluationService';
+import { authService } from '../../services/authService';
 
 const RATING_LABELS = {
   1: 'Muy bajo',
@@ -21,17 +22,42 @@ const RATING_LABELS = {
   5: 'Excelente',
 };
 
+function isOrganizerAudience(audience = '') {
+  return /organizador|logística|logistica/i.test(String(audience || ''));
+}
+
 export function PublicEvaluationView({
   event,
   config,
   templates = [],
   preselectedTemplateId = '',
-  onGoToVisor,
+  preselectedAudience = '',
+  currentUser = null,
+  onAuthenticatedUser,
 }) {
   const activeTemplates = useMemo(() => {
     const ids = config?.templateIds || [];
     return templates.filter((t) => ids.includes(t.id));
   }, [config, templates]);
+
+  const enabledAudiences = useMemo(() => {
+    if (Array.isArray(config?.audiences) && config.audiences.length > 0) {
+      return config.audiences;
+    }
+    return [];
+  }, [config]);
+
+  // En el selector público universal, ocultamos "Equipo Organizador" a quienes no han iniciado sesión
+  const visibleAudiences = useMemo(() => {
+    if (currentUser) return enabledAudiences;
+    return enabledAudiences.filter((aud) => !isOrganizerAudience(aud));
+  }, [enabledAudiences, currentUser]);
+
+  const [selectedAudience, setSelectedAudience] = useState(() => {
+    if (preselectedAudience) return preselectedAudience;
+    if (visibleAudiences.length === 1) return visibleAudiences[0];
+    return '';
+  });
 
   const [selectedTemplateId, setSelectedTemplateId] = useState(() => {
     if (preselectedTemplateId && activeTemplates.some((t) => t.id === preselectedTemplateId)) {
@@ -44,21 +70,56 @@ export function PublicEvaluationView({
   const [answersMap, setAnswersMap] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [closeHint, setCloseHint] = useState(false);
   const [error, setError] = useState('');
 
-  const selectedTemplate = useMemo(
-    () => activeTemplates.find((t) => t.id === selectedTemplateId) || null,
-    [activeTemplates, selectedTemplateId]
-  );
+  // Login interno cuando se accede al formulario de Equipo Organizador sin sesión
+  const [orgEmail, setOrgEmail] = useState('');
+  const [orgPassword, setOrgPassword] = useState('');
+  const [orgAuthLoading, setOrgAuthLoading] = useState(false);
+  const [orgAuthError, setOrgAuthError] = useState('');
+
+  const audienceTemplateMap = config?.audienceTemplateMap || {};
+
+  const selectedTemplate = useMemo(() => {
+    if (selectedTemplateId) {
+      const explicit = templates.find((t) => t.id === selectedTemplateId);
+      if (explicit) return explicit;
+    }
+    if (selectedAudience && audienceTemplateMap[selectedAudience]) {
+      const mapped = templates.find((t) => t.id === audienceTemplateMap[selectedAudience]);
+      if (mapped) return mapped;
+    }
+    if (activeTemplates.length === 1) return activeTemplates[0];
+    return null;
+  }, [activeTemplates, audienceTemplateMap, selectedAudience, selectedTemplateId, templates]);
+
+  useEffect(() => {
+    if (selectedAudience) return;
+    if (preselectedAudience) {
+      setSelectedAudience(preselectedAudience);
+    } else if (visibleAudiences.length === 1) {
+      setSelectedAudience(visibleAudiences[0]);
+    }
+  }, [visibleAudiences, preselectedAudience, selectedAudience]);
 
   useEffect(() => {
     if (selectedTemplateId) return;
-    if (preselectedTemplateId && activeTemplates.some((t) => t.id === preselectedTemplateId)) {
+    if (preselectedTemplateId && templates.some((t) => t.id === preselectedTemplateId)) {
       setSelectedTemplateId(preselectedTemplateId);
+    } else if (selectedAudience && audienceTemplateMap[selectedAudience]) {
+      setSelectedTemplateId(audienceTemplateMap[selectedAudience]);
     } else if (activeTemplates.length === 1) {
       setSelectedTemplateId(activeTemplates[0].id);
     }
-  }, [activeTemplates, preselectedTemplateId, selectedTemplateId]);
+  }, [
+    activeTemplates,
+    audienceTemplateMap,
+    preselectedTemplateId,
+    selectedAudience,
+    selectedTemplateId,
+    templates,
+  ]);
 
   // Evento no encontrado o evaluación no habilitada
   if (!event || !config?.enabled || activeTemplates.length === 0) {
@@ -81,15 +142,103 @@ export function PublicEvaluationView({
               ? 'El enlace de evaluación no corresponde a un evento activo o aún se está sincronizando.'
               : `La evaluación para "${event.title}" se encuentra cerrada por el Departamento de Pastoral.`}
           </p>
-          {onGoToVisor && (
+          <p className="text-xs font-semibold text-slate-400">
+            Ya puedes cerrar esta ventana.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const requiresOrganizerAuth =
+    isOrganizerAudience(selectedAudience) && !currentUser;
+
+  const handleOrganizerLogin = async (e) => {
+    e.preventDefault();
+    setOrgAuthError('');
+    setOrgAuthLoading(true);
+    try {
+      const user = await authService.login({
+        email: orgEmail,
+        password: orgPassword,
+        expectedRole: 'pastoral',
+      });
+      if (onAuthenticatedUser) onAuthenticatedUser(user);
+    } catch (err) {
+      setOrgAuthError(
+        err?.message || 'Correo o contraseña incorrectos. Verifica tus datos de Pastoral.'
+      );
+    } finally {
+      setOrgAuthLoading(false);
+    }
+  };
+
+  // Pantalla de acceso privado para Equipo Organizador si no ha iniciado sesión
+  if (requiresOrganizerAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#1A235A] via-[#2B3890] to-[#3F4DAE] flex items-center justify-center p-4">
+        <div className="max-w-md w-full rounded-3xl bg-white p-7 sm:p-8 shadow-2xl space-y-5">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-full px-4 py-2">
+              <LogoImage type="esfer" className="h-6 w-auto" />
+              <span className="h-4 w-px bg-slate-200" />
+              <LogoImage type="pastoral" className="h-6 w-auto" />
+            </div>
+            <div className="h-12 w-12 rounded-2xl bg-pastoral/10 text-pastoral flex items-center justify-center mx-auto mt-2">
+              <Lock className="h-6 w-6" />
+            </div>
+            <h1 className="text-xl font-black text-slate-900">
+              Evaluación Interna · Equipo Organizador
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Esta evaluación de <strong>{event.title}</strong> es exclusiva del equipo de
+              Pastoral. Inicia sesión con tu cuenta institucional para continuar.
+            </p>
+          </div>
+
+          <form onSubmit={handleOrganizerLogin} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Correo institucional
+              </label>
+              <input
+                type="email"
+                required
+                value={orgEmail}
+                onChange={(e) => setOrgEmail(e.target.value)}
+                placeholder="pastoral@esfersalesianos.edu.mx"
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/25 focus:border-pastoral"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Contraseña
+              </label>
+              <input
+                type="password"
+                required
+                value={orgPassword}
+                onChange={(e) => setOrgPassword(e.target.value)}
+                placeholder="Tu contraseña del Portal Pastoral"
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/25 focus:border-pastoral"
+              />
+            </div>
+
+            {orgAuthError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700">
+                {orgAuthError}
+              </div>
+            )}
+
             <button
-              type="button"
-              onClick={onGoToVisor}
-              className="inline-flex items-center justify-center rounded-2xl bg-pastoral hover:bg-pastoral-deep text-white font-extrabold text-xs px-5 py-2.5"
+              type="submit"
+              disabled={orgAuthLoading}
+              className="w-full rounded-2xl bg-pastoral hover:bg-pastoral-deep disabled:opacity-60 text-white font-extrabold text-sm py-3 shadow-sm transition-colors"
             >
-              Ir al Visor Público
+              {orgAuthLoading ? 'Verificando acceso...' : 'Iniciar sesión y evaluar'}
             </button>
-          )}
+          </form>
         </div>
       </div>
     );
@@ -111,17 +260,28 @@ export function PublicEvaluationView({
               mejorando juntos.
             </p>
           </div>
-          <div className="rounded-2xl bg-pastoral/5 border border-pastoral/15 p-3 text-xs font-semibold text-pastoral-deep italic">
-            «La caridad es paciente, la caridad es benigna» · ESFER Salesianos Chihuahua
+          <div className="rounded-2xl bg-pastoral/5 border border-pastoral/15 px-4 py-3 text-center space-y-1">
+            <div className="text-xs font-semibold text-pastoral-deep italic">
+              «La caridad es paciente, la caridad es benigna»
+            </div>
+            <div className="text-[11px] font-extrabold text-pastoral tracking-wide">
+              ESFER Salesianos
+            </div>
           </div>
-          {onGoToVisor && (
-            <button
-              type="button"
-              onClick={onGoToVisor}
-              className="w-full rounded-2xl bg-pastoral hover:bg-pastoral-deep text-white font-extrabold text-sm py-3 transition-colors"
-            >
-              Conocer el Portal Pastoral
-            </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.close();
+              setCloseHint(true);
+            }}
+            className="w-full rounded-2xl bg-pastoral hover:bg-pastoral-deep text-white font-extrabold text-sm py-3 transition-colors"
+          >
+            Cerrar ventana
+          </button>
+          {closeHint && (
+            <p className="text-xs font-semibold text-slate-500">
+              Tu evaluación quedó registrada. Ya puedes cerrar esta pestaña en tu navegador.
+            </p>
           )}
         </div>
       </div>
@@ -147,6 +307,7 @@ export function PublicEvaluationView({
       const answers = (selectedTemplate.questions || []).map((q) => ({
         questionId: q.id,
         questionText: q.text,
+        criteria: q.criteria || '',
         type: q.type,
         value: answersMap[q.id] ?? '',
       }));
@@ -168,7 +329,7 @@ export function PublicEvaluationView({
         pepsalAreaId: event.pepsalAreaId || '',
         templateId: selectedTemplate.id,
         templateName: selectedTemplate.name,
-        audienceLabel: selectedTemplate.audienceLabel || selectedTemplate.name,
+        audienceLabel: selectedAudience || selectedTemplate.audienceLabel || selectedTemplate.name,
         answers,
         averageRating,
       });
@@ -218,8 +379,8 @@ export function PublicEvaluationView({
           </div>
         </div>
 
-        {/* Paso 1: Elegir destinatario si hay varias plantillas activas */}
-        {!selectedTemplate ? (
+        {/* Paso 1: Elegir destinatario si el evento tiene varios destinatarios visibles */}
+        {visibleAudiences.length > 1 && !selectedAudience ? (
           <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-card space-y-5">
             <div className="text-center space-y-1">
               <div className="h-11 w-11 rounded-2xl bg-pastoral/10 text-pastoral flex items-center justify-center mx-auto">
@@ -229,7 +390,48 @@ export function PublicEvaluationView({
                 ¿Cómo participaste en este evento?
               </h2>
               <p className="text-xs sm:text-sm text-slate-500">
-                Elige tu perfil para mostrarte las preguntas correspondientes.
+                Selecciona tu perfil para iniciar la evaluación.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {visibleAudiences.map((aud) => {
+                const mappedTpl = templates.find((t) => t.id === audienceTemplateMap[aud]);
+                return (
+                  <button
+                    key={aud}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAudience(aud);
+                      setSelectedTemplateId(audienceTemplateMap[aud] || activeTemplates[0]?.id || '');
+                      setAnswersMap({});
+                      setError('');
+                    }}
+                    className="text-left rounded-2xl border border-slate-200 hover:border-pastoral bg-slate-50 hover:bg-pastoral/5 p-4 transition-all group"
+                  >
+                    <div className="text-sm font-extrabold text-slate-900 group-hover:text-pastoral">
+                      {aud}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {mappedTpl ? mappedTpl.name : `Responder evaluación como ${aud}`}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : !selectedTemplate ? (
+          /* Paso 1B: Elegir plantilla si se habilitaron varias plantillas en el mismo evento */
+          <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-card space-y-5">
+            <div className="text-center space-y-1">
+              <div className="h-11 w-11 rounded-2xl bg-pastoral/10 text-pastoral flex items-center justify-center mx-auto">
+                <Users className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                Elige el formulario de evaluación
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Selecciona el enfoque que corresponde a tu participación.
               </p>
             </div>
 
@@ -246,9 +448,9 @@ export function PublicEvaluationView({
                   className="text-left rounded-2xl border border-slate-200 hover:border-pastoral bg-slate-50 hover:bg-pastoral/5 p-4 transition-all group"
                 >
                   <div className="text-sm font-extrabold text-slate-900 group-hover:text-pastoral">
-                    {tpl.audienceLabel || tpl.name}
+                    {tpl.name}
                   </div>
-                  <div className="text-xs text-slate-500 mt-0.5">{tpl.name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{tpl.audienceLabel}</div>
                 </button>
               ))}
             </div>
@@ -262,16 +464,24 @@ export function PublicEvaluationView({
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
                 <div className="text-[11px] font-extrabold uppercase tracking-wider text-pastoral">
-                  Perfil: {selectedTemplate.audienceLabel || selectedTemplate.name}
+                  Destinatario: {selectedAudience || selectedTemplate.audienceLabel || selectedTemplate.name}
                 </div>
                 <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
                   {selectedTemplate.name}
                 </h2>
               </div>
-              {activeTemplates.length > 1 && !preselectedTemplateId && (
+              {((visibleAudiences.length > 1 && !preselectedAudience) ||
+                (activeTemplates.length > 1 && !preselectedTemplateId)) && (
                 <button
                   type="button"
-                  onClick={() => setSelectedTemplateId('')}
+                  onClick={() => {
+                    if (visibleAudiences.length > 1 && !preselectedAudience) {
+                      setSelectedAudience('');
+                      setSelectedTemplateId('');
+                    } else {
+                      setSelectedTemplateId('');
+                    }
+                  }}
                   className="inline-flex items-center gap-1 rounded-xl bg-slate-100 hover:bg-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />

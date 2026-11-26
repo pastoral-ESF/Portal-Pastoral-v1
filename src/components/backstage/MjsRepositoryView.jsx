@@ -6,50 +6,108 @@ import {
   BookOpen,
   Trash2,
   FileText,
+  Lock,
   Sparkles,
 } from 'lucide-react';
-import { MJS_REPO_GROUPS, ROLES, isFullAdminRole } from '../../constants/config';
+import {
+  MJS_REPO_GROUPS,
+  ROLES,
+  isFullAdminRole,
+  isPastoralTeamRole,
+} from '../../constants/config';
 import { Modal } from '../common/Modal';
 
-const RESOURCE_TYPES = ['Itinerario', 'Tema', 'Dinámica', 'Oración'];
+const PASTORAL_REPO_GROUPS = [
+  'Todos',
+  'Subsidios Litúrgicos',
+  'Retiros y Campamentos',
+  'Catequesis y Sacramentos',
+  'Buenos Días / Reflexiones',
+  'Formación Docente',
+  'Familias',
+  'PEPSAL / Documentos',
+];
+
+const MJS_RESOURCE_TYPES = ['Itinerario', 'Tema', 'Dinámica', 'Oración'];
+const PASTORAL_RESOURCE_TYPES = [
+  'Subsidio',
+  'Liturgia / Misa',
+  'Guía / PDF',
+  'Presentación',
+  'Tema',
+  'Oración',
+  'Dinámica',
+];
 
 const TYPE_BADGES = {
   Itinerario: 'bg-pastoral/10 text-pastoral',
   Tema: 'bg-pastoral-cyan/15 text-sky-800',
   Dinámica: 'bg-pastoral-lime/20 text-lime-900',
   Oración: 'bg-pastoral-gold/25 text-amber-900',
+  Subsidio: 'bg-pastoral/15 text-pastoral-deep',
+  'Liturgia / Misa': 'bg-purple-100 text-purple-900',
+  'Guía / PDF': 'bg-emerald-100 text-emerald-900',
+  Presentación: 'bg-amber-100 text-amber-900',
 };
 
-const BLANK_RESOURCE = {
-  title: '',
-  group: 'Pandillas',
-  type: 'Dinámica',
-  description: '',
-  url: '',
-  content: '',
-  author: '',
-};
+function createBlankResource(area = 'mjs') {
+  return {
+    area,
+    title: '',
+    group: area === 'pastoral' ? 'Subsidios Litúrgicos' : 'Pandillas',
+    type: area === 'pastoral' ? 'Subsidio' : 'Dinámica',
+    description: '',
+    url: '',
+    content: '',
+    author: '',
+  };
+}
 
 export function MjsRepositoryView({ resources, role, onAddResource, onDeleteResource }) {
+  const isPastoralTeam = isPastoralTeamRole(role);
+  const [activeRepo, setActiveRepo] = useState(isPastoralTeam ? 'pastoral' : 'mjs'); // 'pastoral' | 'mjs'
   const [selectedGroup, setSelectedGroup] = useState('Todos');
   const [addOpen, setAddOpen] = useState(false);
   const [viewing, setViewing] = useState(null);
-  const [form, setForm] = useState(BLANK_RESOURCE);
+  const [form, setForm] = useState(() => createBlankResource(isPastoralTeam ? 'pastoral' : 'mjs'));
 
-  const filtered = resources.filter((r) =>
-    selectedGroup === 'Todos' ? true : r.group === selectedGroup
-  );
+  // Seguridad por rol: Animadores MJS nunca ven recursos del área "pastoral"
+  const effectiveRepo = isPastoralTeam ? activeRepo : 'mjs';
+  const groupChoices = effectiveRepo === 'pastoral' ? PASTORAL_REPO_GROUPS : MJS_REPO_GROUPS;
+  const typeChoices = effectiveRepo === 'pastoral' ? PASTORAL_RESOURCE_TYPES : MJS_RESOURCE_TYPES;
+
+  const pastoralCount = resources.filter((r) => r.area === 'pastoral').length;
+  const mjsCount = resources.filter((r) => (r.area || 'mjs') === 'mjs').length;
+
+  const filtered = resources
+    .filter((r) => {
+      const area = r.area || 'mjs';
+      if (!isPastoralTeam && area === 'pastoral') return false;
+      return area === effectiveRepo;
+    })
+    .filter((r) => (selectedGroup === 'Todos' ? true : r.group === selectedGroup));
+
+  const switchRepo = (repo) => {
+    setActiveRepo(repo);
+    setSelectedGroup('Todos');
+  };
+
+  const openAddModal = () => {
+    setForm(createBlankResource(effectiveRepo));
+    setAddOpen(true);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
     onAddResource({
       ...form,
+      area: isPastoralTeam ? form.area || effectiveRepo : 'mjs',
       author:
         form.author.trim() ||
-        (role === ROLES.ANIMADOR ? 'Animador MJS' : 'Coordinación Pastoral'),
+        (role === ROLES.ANIMADOR ? 'Animador MJS' : 'Equipo de Pastoral'),
     });
-    setForm(BLANK_RESOURCE);
+    setForm(createBlankResource(effectiveRepo));
     setAddOpen(false);
   };
 
@@ -57,32 +115,82 @@ export function MjsRepositoryView({ resources, role, onAddResource, onDeleteReso
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-pastoral-cyan/15 text-sky-800 px-3 py-1 text-xs font-extrabold">
-            <FolderHeart className="h-3.5 w-3.5" />
-            Biblioteca de Animación Juvenil
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-extrabold ${
+              effectiveRepo === 'pastoral'
+                ? 'bg-pastoral/10 text-pastoral'
+                : 'bg-pastoral-cyan/15 text-sky-800'
+            }`}
+          >
+            {effectiveRepo === 'pastoral' ? (
+              <>
+                <Lock className="h-3.5 w-3.5" />
+                Uso Interno · Solo Equipo de Pastoral
+              </>
+            ) : (
+              <>
+                <FolderHeart className="h-3.5 w-3.5" />
+                Biblioteca de Animación Juvenil
+              </>
+            )}
           </span>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">
-            Repositorio MJS (Animadores y Coordinación)
+            {effectiveRepo === 'pastoral'
+              ? 'Repositorio y Subsidios de Pastoral'
+              : 'Repositorio MJS (Animadores y Pastoral)'}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Itinerarios, temas, dinámicas y oraciones compartidas para los grupos de Glandorff,
-            Kennedy y Cordilleras.
+            {effectiveRepo === 'pastoral'
+              ? 'Subsidios litúrgicos, guías de retiros, Buenos Días y documentos internos compartidos exclusivamente para el equipo de Pastoral.'
+              : 'Itinerarios, temas, dinámicas y oraciones compartidas para los grupos de Glandorff, Kennedy y Cordilleras.'}
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setAddOpen(true)}
+          onClick={openAddModal}
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-pastoral hover:bg-pastoral-deep text-white font-extrabold text-sm px-5 py-3 shadow-sm transition-all shrink-0"
         >
           <Plus className="h-4 w-4" />
-          <span>Agregar Recurso</span>
+          <span>
+            {effectiveRepo === 'pastoral' ? 'Agregar Subsidio Pastoral' : 'Agregar Recurso MJS'}
+          </span>
         </button>
       </div>
 
-      {/* Filtros por grupo */}
+      {/* Selector de Repositorio (solo visible para Equipo de Pastoral; oculto para Animadores) */}
+      {isPastoralTeam && (
+        <div className="inline-flex flex-wrap bg-white border border-slate-200 rounded-2xl p-1 shadow-card gap-1">
+          <button
+            type="button"
+            onClick={() => switchRepo('pastoral')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+              effectiveRepo === 'pastoral'
+                ? 'bg-pastoral text-white shadow-sm'
+                : 'text-slate-600 hover:text-pastoral'
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5" />
+            <span>Subsidios de Pastoral ({pastoralCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchRepo('mjs')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+              effectiveRepo === 'mjs'
+                ? 'bg-pastoral text-white shadow-sm'
+                : 'text-slate-600 hover:text-pastoral'
+            }`}
+          >
+            <FolderHeart className="h-3.5 w-3.5" />
+            <span>Repositorio MJS ({mjsCount})</span>
+          </button>
+        </div>
+      )}
+
+      {/* Filtros por categoría / grupo */}
       <div className="flex flex-wrap gap-2">
-        {MJS_REPO_GROUPS.map((group) => (
+        {groupChoices.map((group) => (
           <button
             key={group}
             type="button"
@@ -211,8 +319,16 @@ export function MjsRepositoryView({ resources, role, onAddResource, onDeleteReso
       <Modal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        title="Agregar Recurso al Repositorio MJS"
-        subtitle="Comparte un itinerario, tema, dinámica u oración con los demás animadores."
+        title={
+          effectiveRepo === 'pastoral'
+            ? 'Agregar Subsidio al Repositorio de Pastoral'
+            : 'Agregar Recurso al Repositorio MJS'
+        }
+        subtitle={
+          effectiveRepo === 'pastoral'
+            ? 'Visible únicamente para el equipo de Pastoral (SDB, Coordinación y Agentes).'
+            : 'Comparte un itinerario, tema, dinámica u oración con los demás animadores.'
+        }
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -224,7 +340,11 @@ export function MjsRepositoryView({ resources, role, onAddResource, onDeleteReso
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Ej. Dinámica de integración «Amigos de Don Bosco»"
+              placeholder={
+                effectiveRepo === 'pastoral'
+                  ? 'Ej. Subsidio de Cuaresma y Miércoles de Ceniza'
+                  : 'Ej. Dinámica de integración «Amigos de Don Bosco»'
+              }
               className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm"
             />
           </div>
@@ -232,18 +352,20 @@ export function MjsRepositoryView({ resources, role, onAddResource, onDeleteReso
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
-                Grupo MJS
+                {effectiveRepo === 'pastoral' ? 'Categoría Pastoral' : 'Grupo MJS'}
               </label>
               <select
                 value={form.group}
                 onChange={(e) => setForm({ ...form, group: e.target.value })}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
               >
-                {MJS_REPO_GROUPS.filter((g) => g !== 'Todos').map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
+                {groupChoices
+                  .filter((g) => g !== 'Todos')
+                  .map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
@@ -255,7 +377,7 @@ export function MjsRepositoryView({ resources, role, onAddResource, onDeleteReso
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white"
               >
-                {RESOURCE_TYPES.map((t) => (
+                {typeChoices.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>

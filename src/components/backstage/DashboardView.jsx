@@ -13,12 +13,18 @@ import {
   Sparkles,
   BookOpen,
   Clock,
+  CheckSquare,
+  Circle,
+  UserCheck,
+  ArrowRight,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   PLANTELES,
   PLANTEL_BADGE_STYLES,
   STATUS_STYLES,
   AGUINALDO_ACTUAL,
+  isFullAdminRole,
 } from '../../constants/config';
 import { Modal } from '../common/Modal';
 
@@ -36,21 +42,47 @@ function isPastEvent(ev, todayIso) {
   return effectiveEnd < todayIso;
 }
 
+function normText(str = '') {
+  return String(str || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function namesMatch(a = '', b = '') {
+  const na = normText(a);
+  const nb = normText(b);
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
 export function DashboardView({
   cartas,
   unifiedEvents,
+  tasks = [],
   messages,
+  currentUser = null,
   onNewCarta,
   onEditCarta,
   onPrintCarta,
+  onToggleTaskDone,
   onQuickEventClick,
+  onGoToTasks,
+  onGoToCartas,
   onGoToEvaluation,
   onGoToInbox,
 }) {
   const [plantelFilter, setPlantelFilter] = useState('Todos');
   const [onlyCurrentMonth, setOnlyCurrentMonth] = useState(true);
   const [showPastEvents, setShowPastEvents] = useState(false);
+  const [showAllPlanningCartas, setShowAllPlanningCartas] = useState(false);
   const [aguinaldoOpen, setAguinaldoOpen] = useState(false);
+
+  const isFullAdmin = isFullAdminRole(currentUser?.role);
+  const myUid = currentUser?.uid || '';
+  const myEmail = (currentUser?.email || '').trim().toLowerCase();
+  const myName = (currentUser?.name || '').trim().toLowerCase();
 
   const now = new Date();
   const todayIso = getLocalTodayIso();
@@ -122,6 +154,78 @@ export function DashboardView({
     if (showPastEvents) return scopedEvents;
     return scopedEvents.filter((e) => !isPastEvent(e, todayIso));
   }, [scopedEvents, showPastEvents, todayIso]);
+
+  // Pendientes activos asignados al usuario actual o creados por él (si no fueron delegados a alguien más)
+  const myAssignedTasks = useMemo(() => {
+    return tasks
+      .filter((t) => {
+        if (t.done) return false;
+        const inAssigneesArray =
+          Array.isArray(t.assignees) &&
+          t.assignees.some(
+            (a) =>
+              (myUid && a.uid === myUid) ||
+              (myEmail && normText(a.email) === myEmail) ||
+              (myName && namesMatch(a.name, currentUser?.name))
+          );
+        const isAssignedToMe =
+          inAssigneesArray ||
+          (myUid && t.assignedToUid === myUid) ||
+          (myEmail && normText(t.assignedToEmail) === myEmail) ||
+          (myName &&
+            String(t.assignedToName || '')
+              .split(',')
+              .some((part) => namesMatch(part, currentUser?.name)));
+
+        if (isAssignedToMe) return true;
+
+        const hasOtherAssignee =
+          (Array.isArray(t.assignees) && t.assignees.length > 0) ||
+          Boolean(t.assignedToUid || t.assignedToEmail || t.assignedToName);
+        const isMine =
+          (myUid && t.ownerUid === myUid) ||
+          (myEmail && normText(t.ownerEmail) === myEmail) ||
+          (myName && namesMatch(t.ownerName, currentUser?.name));
+
+        return isMine && !hasOtherAssignee;
+      })
+      .sort((a, b) => (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31'));
+  }, [tasks, myUid, myEmail, myName, currentUser]);
+
+  // Cartas Descriptivas en planeación asignadas al usuario actual
+  const allPlanningCartas = useMemo(
+    () =>
+      cartas
+        .filter((c) => (c.status || 'En planeación') === 'En planeación')
+        .sort((a, b) => (a.date || '9999-12-31').localeCompare(b.date || '9999-12-31')),
+    [cartas]
+  );
+
+  const myPlanningCartas = useMemo(() => {
+    if (!myName) return allPlanningCartas;
+    return allPlanningCartas.filter((c) => {
+      const respList =
+        Array.isArray(c.responsibleNames) && c.responsibleNames.length > 0
+          ? c.responsibleNames
+          : c.responsibleName
+          ? String(c.responsibleName).split(',').map((s) => s.trim()).filter(Boolean)
+          : [];
+      if (respList.length > 0) {
+        return respList.some((name) => namesMatch(name, currentUser?.name));
+      }
+      if (c.designer && namesMatch(c.designer, currentUser?.name)) {
+        return true;
+      }
+      // Si es Auxiliar de plantel y una carta de su plantel no tiene responsable específico, se la mostramos
+      if (!isFullAdmin && currentUser?.plantel && c.plantel === currentUser.plantel) {
+        return true;
+      }
+      return false;
+    });
+  }, [allPlanningCartas, myName, isFullAdmin, currentUser]);
+
+  const displayedPlanningCartas =
+    isFullAdmin && showAllPlanningCartas ? allPlanningCartas : myPlanningCartas;
 
   return (
     <div className="space-y-6">
@@ -224,6 +328,220 @@ export function DashboardView({
             </Wrapper>
           );
         })}
+      </div>
+
+      {/* Resumen Personal: Mis Pendientes Asignados + Mis Cartas Descriptivas en Planeación */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* 1. Mis Pendientes Asignados */}
+        <section className="rounded-3xl bg-white border border-slate-200 p-5 shadow-card flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-2xl bg-pastoral/10 text-pastoral flex items-center justify-center shrink-0">
+                  <CheckSquare className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-black text-slate-900">
+                      Mis Pendientes Asignados
+                    </h2>
+                    <span className="rounded-full bg-pastoral/10 text-pastoral px-2 py-0.5 text-xs font-extrabold">
+                      {myAssignedTasks.length}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Tareas asignadas a {currentUser?.name || 'ti'} y tus pendientes personales
+                  </p>
+                </div>
+              </div>
+              {onGoToTasks && (
+                <button
+                  type="button"
+                  onClick={onGoToTasks}
+                  className="inline-flex items-center gap-1 text-xs font-extrabold text-pastoral hover:text-pastoral-deep shrink-0"
+                >
+                  <span>Ver todos</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {myAssignedTasks.length === 0 ? (
+              <div className="rounded-2xl bg-slate-50 border border-slate-200/70 p-6 text-center text-xs text-slate-500">
+                No tienes pendientes asignados activos por el momento. ¡Todo al día!
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {myAssignedTasks.map((t) => {
+                  const isOverdue = Boolean(t.dueDate && t.dueDate < todayIso);
+                  const isAssigned =
+                    (myUid && t.assignedToUid === myUid) ||
+                    (myEmail && normText(t.assignedToEmail) === myEmail) ||
+                    (myName && namesMatch(t.assignedToName, currentUser?.name));
+                  return (
+                    <div
+                      key={t.id}
+                      className={`rounded-2xl border p-3 flex items-start gap-2.5 transition-colors ${
+                        isOverdue
+                          ? 'bg-rose-50/60 border-rose-200'
+                          : 'bg-slate-50/70 border-slate-200/80 hover:bg-white'
+                      }`}
+                    >
+                      {onToggleTaskDone && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleTaskDone(t.id)}
+                          className="mt-0.5 text-slate-300 hover:text-emerald-600 transition-colors shrink-0"
+                          title="Marcar como completado"
+                        >
+                          <Circle className="h-5 w-5" />
+                        </button>
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {isAssigned && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-extrabold">
+                              <UserCheck className="h-2.5 w-2.5" />
+                              Asignado
+                            </span>
+                          )}
+                          {isOverdue && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 px-2 py-0.5 text-[10px] font-extrabold">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              Vencido
+                            </span>
+                          )}
+                          {t.dueDate && (
+                            <span className="text-[11px] font-bold text-slate-500">
+                              {t.dueDate}
+                            </span>
+                          )}
+                          <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                            {t.priority || 'Media'}
+                          </span>
+                        </div>
+                        <div className="text-xs sm:text-sm font-extrabold text-slate-900 leading-snug">
+                          {t.title}
+                        </div>
+                        {t.notes && (
+                          <div className="text-[11px] text-slate-500 line-clamp-1">{t.notes}</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 2. Mis Cartas Descriptivas en Planeación */}
+        <section className="rounded-3xl bg-white border border-slate-200 p-5 shadow-card flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-black text-slate-900">
+                      {isFullAdmin && showAllPlanningCartas
+                        ? 'Cartas en Planeación (Equipo)'
+                        : 'Mis Cartas en Planeación'}
+                    </h2>
+                    <span className="rounded-full bg-amber-100 text-amber-900 px-2 py-0.5 text-xs font-extrabold">
+                      {displayedPlanningCartas.length}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Cartas Descriptivas asignadas a tu seguimiento pendientes de aprobar
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isFullAdmin && allPlanningCartas.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllPlanningCartas((prev) => !prev)}
+                    className="rounded-full bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 px-2.5 py-1 text-[10px] font-extrabold"
+                  >
+                    {showAllPlanningCartas
+                      ? `Solo mías (${myPlanningCartas.length})`
+                      : `Ver todas (${allPlanningCartas.length})`}
+                  </button>
+                )}
+                {onGoToCartas && (
+                  <button
+                    type="button"
+                    onClick={onGoToCartas}
+                    className="inline-flex items-center gap-1 text-xs font-extrabold text-pastoral hover:text-pastoral-deep shrink-0"
+                  >
+                    <span>Ver todas</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {displayedPlanningCartas.length === 0 ? (
+              <div className="rounded-2xl bg-slate-50 border border-slate-200/70 p-6 text-center text-xs text-slate-500">
+                No tienes Cartas Descriptivas en planeación asignadas por el momento.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {displayedPlanningCartas.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border border-amber-200/80 border-l-4 border-l-amber-400 bg-amber-50/30 hover:bg-white p-3 flex items-center justify-between gap-3 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                            PLANTEL_BADGE_STYLES[c.plantel] || PLANTEL_BADGE_STYLES.General
+                          }`}
+                        >
+                          {c.plantel === 'Otro' && c.customPlantel ? c.customPlantel : c.plantel}
+                        </span>
+                        <span className="text-[11px] font-extrabold text-pastoral">{c.date}</span>
+                      </div>
+                      <div className="text-xs sm:text-sm font-extrabold text-slate-900 truncate">
+                        {c.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Responsable:{' '}
+                        <strong className="text-slate-700">
+                          {c.responsibleName || c.designer || 'Sin asignar'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onEditCarta(c)}
+                        className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200 hover:border-pastoral/40 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:text-pastoral"
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        <span>Editar</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onPrintCarta(c)}
+                        className="p-1.5 rounded-xl bg-pastoral/10 hover:bg-pastoral text-pastoral hover:text-white transition-colors"
+                        title="Imprimir Carta"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
       {/* Lista de eventos próximos filtrable por plantel */}

@@ -183,10 +183,20 @@ export default function App() {
       const isMine =
         (myUid && t.ownerUid === myUid) ||
         (myEmail && (t.ownerEmail || '').trim().toLowerCase() === myEmail);
+      const inAssigneesArray =
+        Array.isArray(t.assignees) &&
+        t.assignees.some(
+          (a) =>
+            (myUid && a.uid === myUid) ||
+            (myEmail && (a.email || '').trim().toLowerCase() === myEmail)
+        );
       const isAssignedToMe =
+        inAssigneesArray ||
         (myUid && t.assignedToUid === myUid) ||
         (myEmail && (t.assignedToEmail || '').trim().toLowerCase() === myEmail);
-      const hasSpecificAssignee = Boolean(t.assignedToUid || t.assignedToEmail);
+      const hasSpecificAssignee =
+        (Array.isArray(t.assignees) && t.assignees.length > 0) ||
+        Boolean(t.assignedToUid || t.assignedToEmail);
 
       if (isFullAdmin) {
         if (
@@ -533,7 +543,9 @@ export default function App() {
               <DashboardView
                 cartas={scopedCartas}
                 unifiedEvents={scopedUnifiedEvents}
+                tasks={db.tasks || []}
                 messages={scopedMessages}
+                currentUser={currentUser}
                 onNewCarta={() => {
                   setEditingCartaIntent('NEW');
                   setBackstageTab('planeador');
@@ -543,7 +555,10 @@ export default function App() {
                   setBackstageTab('planeador');
                 }}
                 onPrintCarta={handlePrintCarta}
+                onToggleTaskDone={handleToggleTaskDone}
                 onQuickEventClick={() => setBackstageTab('calendario')}
+                onGoToTasks={() => setBackstageTab('pendientes')}
+                onGoToCartas={() => setBackstageTab('planeador')}
                 onGoToEvaluation={() => setBackstageTab('evaluacion')}
                 onGoToInbox={() => setBackstageTab('admin')}
               />

@@ -141,6 +141,7 @@ export const AGUINALDO_ACTUAL = {
 
 export const DEFAULT_COMMISSIONS = [
   { id: 'com-1', what: 'CONVOCATORIA y SOCIALIZACIÓN', who: '', how: '', material: '' },
+  { id: 'com-8', what: 'AVISO A COMUNICACIÓN', who: '', how: '', material: '' },
   { id: 'com-2', what: 'PREPARACIÓN DEL LUGAR', who: '', how: '', material: '' },
   { id: 'com-3', what: 'AMBIENTACIÓN', who: '', how: '', material: '' },
   { id: 'com-4', what: 'SONIDO', who: '', how: '', material: '' },

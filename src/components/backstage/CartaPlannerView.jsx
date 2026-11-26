@@ -45,6 +45,31 @@ const RESOURCE_TYPES = [
   'Video / Multimedia',
 ];
 
+const DEFAULT_MOBILIARIO = [
+  { id: 'pf-1', material: 'Sillas', quantity: '', observations: '' },
+  { id: 'pf-2', material: 'Mesas', quantity: '', observations: '' },
+  { id: 'pf-3', material: 'Bocinas', quantity: '', observations: '' },
+  { id: 'pf-4', material: 'Mantelería', quantity: 'NO', observations: 'NO' },
+  { id: 'pf-5', material: 'Micrófonos', quantity: '', observations: '' },
+  { id: 'pf-6', material: 'Templete', quantity: 'NO', observations: 'NO' },
+];
+
+function createDefaultPlantaFisica(cartaLike = {}) {
+  const timeRange = [cartaLike.startTime, cartaLike.endTime].filter(Boolean).join(' - ');
+  return {
+    enabled: false,
+    plantel: cartaLike.plantel || 'Glandorff',
+    customPlantel: cartaLike.customPlantel || '',
+    date: cartaLike.date || '',
+    manager: cartaLike.responsibleName || cartaLike.designer || '',
+    location: cartaLike.location || '',
+    reason: cartaLike.name || '',
+    time: timeRange,
+    items: DEFAULT_MOBILIARIO.map((item) => ({ ...item, id: `${item.id}-${Date.now()}` })),
+    notes: '',
+  };
+}
+
 function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'Glandorff') {
   const defaultArea = getPepsalAreaById(defaultPepsalAreaId) || PEPSAL_AREAS[0];
   return {
@@ -59,6 +84,7 @@ function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'G
     location: '',
     designer: '',
     responsibleName: '',
+    responsibleNames: [],
     objective: '',
     esaDimensionId: 'D3',
     esaSubdimensionId: '3.2',
@@ -72,6 +98,7 @@ function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'G
       { id: `sch-${Date.now()}-1`, time: '09:00 - 09:30', what: '', where: '', responsible: '' },
     ],
     commissions: DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` })),
+    plantaFisica: createDefaultPlantaFisica({ plantel: defaultPlantel || 'Glandorff' }),
     resources: [],
   };
 }
@@ -104,17 +131,57 @@ function buildFormFromIntent(intent, restrictedPlantel) {
     };
   }
   const cloned = structuredClone(intent);
+  const existingCommissions =
+    Array.isArray(cloned.commissions) && cloned.commissions.length > 0
+      ? cloned.commissions
+      : DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` }));
+
+  // Si es una carta guardada antes de agregar "AVISO A COMUNICACIÓN", la insertamos automáticamente
+  const hasAvisoCom = existingCommissions.some((row) =>
+    String(row.what || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .includes('aviso a comunicacion')
+  );
+  const finalCommissions = hasAvisoCom
+    ? existingCommissions
+    : [
+        ...existingCommissions.slice(0, 1),
+        { id: `com-aviso-${Date.now()}`, what: 'AVISO A COMUNICACIÓN', who: '', how: '', material: '' },
+        ...existingCommissions.slice(1),
+      ];
+
+  const parsedResponsibles = Array.isArray(cloned.responsibleNames) && cloned.responsibleNames.length > 0
+    ? cloned.responsibleNames
+    : cloned.responsibleName
+    ? String(cloned.responsibleName)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
   return {
     ...createBlankCarta('PEPSAL-FE', restrictedPlantel || 'Glandorff'),
     ...cloned,
+    responsibleNames: parsedResponsibles,
+    responsibleName: parsedResponsibles.join(', '),
     schedule:
       Array.isArray(cloned.schedule) && cloned.schedule.length > 0
         ? cloned.schedule
         : [{ id: `sch-${Date.now()}-1`, time: '09:00 - 09:30', what: '', where: '', responsible: '' }],
-    commissions:
-      Array.isArray(cloned.commissions) && cloned.commissions.length > 0
-        ? cloned.commissions
-        : DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` })),
+    commissions: finalCommissions,
+    plantaFisica: cloned.plantaFisica
+      ? {
+          ...createDefaultPlantaFisica(cloned),
+          ...cloned.plantaFisica,
+          enabled: cloned.plantaFisica.enabled !== false,
+          items:
+            Array.isArray(cloned.plantaFisica.items) && cloned.plantaFisica.items.length > 0
+              ? cloned.plantaFisica.items
+              : DEFAULT_MOBILIARIO.map((item) => ({ ...item, id: `${item.id}-${Date.now()}` })),
+        }
+      : createDefaultPlantaFisica(cloned),
     resources: Array.isArray(cloned.resources) ? cloned.resources : [],
   };
 }
@@ -285,6 +352,85 @@ export function CartaPlannerView({
     }));
   };
 
+  const togglePlantaFisicaEnabled = (checked) => {
+    setForm((prev) => {
+      const currentPf = prev.plantaFisica || createDefaultPlantaFisica(prev);
+      const timeRange = [prev.startTime, prev.endTime].filter(Boolean).join(' - ');
+      return {
+        ...prev,
+        plantaFisica: {
+          ...currentPf,
+          enabled: checked,
+          plantel: currentPf.plantel || prev.plantel,
+          customPlantel: currentPf.customPlantel || prev.customPlantel || '',
+          date:
+            currentPf.date ||
+            (prev.endDate && prev.endDate > prev.date
+              ? `${prev.date} al ${prev.endDate}`
+              : prev.date || ''),
+          manager: currentPf.manager || prev.responsibleName || prev.designer || '',
+          location: currentPf.location || prev.location || '',
+          reason: currentPf.reason || prev.name || '',
+          time: currentPf.time || timeRange,
+        },
+      };
+    });
+  };
+
+  const updatePlantaFisicaField = (field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      plantaFisica: {
+        ...(prev.plantaFisica || createDefaultPlantaFisica(prev)),
+        [field]: value,
+      },
+    }));
+  };
+
+  const updatePlantaFisicaItem = (index, field, value) => {
+    setForm((prev) => {
+      const currentPf = prev.plantaFisica || createDefaultPlantaFisica(prev);
+      return {
+        ...prev,
+        plantaFisica: {
+          ...currentPf,
+          items: (currentPf.items || []).map((row, i) =>
+            i === index ? { ...row, [field]: value } : row
+          ),
+        },
+      };
+    });
+  };
+
+  const addPlantaFisicaItem = () => {
+    setForm((prev) => {
+      const currentPf = prev.plantaFisica || createDefaultPlantaFisica(prev);
+      return {
+        ...prev,
+        plantaFisica: {
+          ...currentPf,
+          items: [
+            ...(currentPf.items || []),
+            { id: `pf-extra-${Date.now()}`, material: '', quantity: '', observations: '' },
+          ],
+        },
+      };
+    });
+  };
+
+  const removePlantaFisicaItem = (index) => {
+    setForm((prev) => {
+      const currentPf = prev.plantaFisica || createDefaultPlantaFisica(prev);
+      return {
+        ...prev,
+        plantaFisica: {
+          ...currentPf,
+          items: (currentPf.items || []).filter((_, i) => i !== index),
+        },
+      };
+    });
+  };
+
   const addResourceRow = () => {
     setForm((prev) => ({
       ...prev,
@@ -319,7 +465,29 @@ export function CartaPlannerView({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    onSaveCarta(form);
+    const pf = form.plantaFisica;
+    const timeRange = [form.startTime, form.endTime].filter(Boolean).join(' - ');
+    const cleanedCarta = {
+      ...form,
+      plantaFisica: pf?.enabled
+        ? {
+            ...pf,
+            enabled: true,
+            plantel: pf.plantel || form.plantel,
+            customPlantel: pf.customPlantel || form.customPlantel || '',
+            date:
+              pf.date ||
+              (form.endDate && form.endDate > form.date
+                ? `${form.date} al ${form.endDate}`
+                : form.date || ''),
+            manager: pf.manager || form.responsibleName || form.designer || '',
+            location: pf.location || form.location || '',
+            reason: pf.reason || form.name || '',
+            time: pf.time || timeRange,
+          }
+        : null,
+    };
+    onSaveCarta(cleanedCarta);
     setMode('list');
   };
 
@@ -546,6 +714,11 @@ export function CartaPlannerView({
                         </>
                       )}
                     </span>
+                    {c.plantaFisica && c.plantaFisica.enabled !== false && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-0.5 text-[11px] font-bold">
+                        <Wrench className="h-3 w-3" /> Con Planta Física
+                      </span>
+                    )}
                   </div>
 
                   <h2 className="text-lg font-extrabold text-slate-900 leading-snug">{c.name}</h2>
@@ -640,19 +813,6 @@ export function CartaPlannerView({
                         Marcar Realizada
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setPlantaFisicaCarta(c)}
-                      className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
-                        c.plantaFisica
-                          ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
-                          : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-pastoral'
-                      }`}
-                      title="Abrir formulario de Solicitud de eventos Planta Física"
-                    >
-                      <Wrench className="h-3.5 w-3.5" />
-                      <span>{c.plantaFisica ? 'Planta Física ✓' : 'Planta Física'}</span>
-                    </button>
                     {onOpenEvaluation && (
                       <button
                         type="button"
@@ -1047,29 +1207,61 @@ export function CartaPlannerView({
             />
           </div>
 
-          <div className="md:col-span-1">
-            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
-              Responsable de seguimiento y edición
+          <div className="md:col-span-2 lg:col-span-3">
+            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1.5">
+              Responsable(s) de seguimiento y edición (puedes elegir varios)
             </label>
             {teamUsers.length > 0 ? (
-              <select
-                value={form.responsibleName || ''}
-                onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pastoral/30"
-              >
-                <option value="">Usar quien diseñó / Sin asignar</option>
-                {teamUsers.map((u) => (
-                  <option key={u.uid || u.email} value={u.name}>
-                    {u.name} ({u.plantel || 'General'})
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap gap-2">
+                {teamUsers.map((u) => {
+                  const selectedList = Array.isArray(form.responsibleNames)
+                    ? form.responsibleNames
+                    : [];
+                  const active = selectedList.includes(u.name);
+                  return (
+                    <button
+                      key={u.uid || u.email}
+                      type="button"
+                      onClick={() => {
+                        const next = active
+                          ? selectedList.filter((n) => n !== u.name)
+                          : [...selectedList, u.name];
+                        setForm({
+                          ...form,
+                          responsibleNames: next,
+                          responsibleName: next.join(', '),
+                        });
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                        active
+                          ? 'bg-pastoral text-white border-pastoral shadow-sm'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-pastoral/40'
+                      }`}
+                    >
+                      <span>{active ? '✓' : '+'}</span>
+                      <span>
+                        {u.name} ({u.plantel || 'General'})
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
               <input
                 type="text"
                 value={form.responsibleName || ''}
-                onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
-                placeholder="Nombre del agente o coordinador responsable"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setForm({
+                    ...form,
+                    responsibleName: val,
+                    responsibleNames: val
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  });
+                }}
+                placeholder="Nombres separados por coma (ej. Mariana, Diego)"
                 className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30"
               />
             )}
@@ -1429,14 +1621,130 @@ export function CartaPlannerView({
         </div>
       </section>
 
-      {/* 4. RECURSOS Y ANEXOS (Google Drive, Canva, PDF, Pósters, Infografías) */}
+      {/* 4. SOLICITUD DE PLANTA FÍSICA (Integrada en la misma Carta y en Hoja 2 al imprimir) */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-5 sm:p-6 shadow-card space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-amber-600" />
+              <h2 className="text-base font-extrabold text-slate-900">
+                4. SOLICITUD DE PLANTA FÍSICA (Mobiliario y Sonido)
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Si la activas, al pulsar <strong>Imprimir</strong> se incluirá automáticamente en la
+              Hoja 2 lista para entregar a Planta Física.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 border border-amber-200 px-3.5 py-2 text-xs font-extrabold text-amber-950 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(form.plantaFisica?.enabled)}
+              onChange={(e) => togglePlantaFisicaEnabled(e.target.checked)}
+              className="rounded border-amber-400 text-pastoral focus:ring-pastoral"
+            />
+            <span>Requiere apoyo de Planta Física</span>
+          </label>
+        </div>
+
+        {form.plantaFisica?.enabled && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-extrabold text-slate-700 uppercase">
+                Mobiliario y equipo requerido
+              </span>
+              <button
+                type="button"
+                onClick={addPlantaFisicaItem}
+                className="inline-flex items-center gap-1 rounded-xl bg-pastoral/10 hover:bg-pastoral text-pastoral hover:text-white px-3 py-1.5 text-xs font-bold transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Agregar renglón</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead>
+                  <tr className="text-left text-xs font-extrabold text-slate-500 uppercase border-b border-slate-200">
+                    <th className="py-2 pr-2 w-44">Material</th>
+                    <th className="py-2 px-2 w-28">Cantidad</th>
+                    <th className="py-2 px-2">Observaciones</th>
+                    <th className="py-2 pl-2 w-10" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(form.plantaFisica.items || []).map((row, idx) => (
+                    <tr key={row.id || idx}>
+                      <td className="py-1.5 pr-2">
+                        <input
+                          type="text"
+                          value={row.material}
+                          onChange={(e) => updatePlantaFisicaItem(idx, 'material', e.target.value)}
+                          placeholder="Ej. Sillas, Extensión..."
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:border-pastoral"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={row.quantity}
+                          onChange={(e) => updatePlantaFisicaItem(idx, 'quantity', e.target.value)}
+                          placeholder="Ej. 50 / NO"
+                          className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-center focus:outline-none focus:border-pastoral"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="text"
+                          value={row.observations}
+                          onChange={(e) =>
+                            updatePlantaFisicaItem(idx, 'observations', e.target.value)
+                          }
+                          placeholder="Detalles de colocación o especificaciones"
+                          className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:outline-none focus:border-pastoral"
+                        />
+                      </td>
+                      <td className="py-1.5 pl-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => removePlantaFisicaItem(idx)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          aria-label="Eliminar renglón de mobiliario"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Notas adicionales para Planta Física
+              </label>
+              <textarea
+                rows={2}
+                value={form.plantaFisica.notes || ''}
+                onChange={(e) => updatePlantaFisicaField('notes', e.target.value)}
+                placeholder="Ej. Favor de tener montado el sonido y las sillas 30 minutos antes del inicio..."
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs sm:text-sm focus:outline-none focus:border-pastoral"
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 5. RECURSOS Y ANEXOS (Google Drive, Canva, PDF, Pósters, Infografías) */}
       <section className="rounded-3xl bg-white border border-slate-200 p-5 sm:p-6 shadow-card space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <div className="flex items-center gap-2">
               <Paperclip className="h-5 w-5 text-pastoral" />
               <h2 className="text-base font-extrabold text-slate-900">
-                4. RECURSOS Y ANEXOS (PDF, Pósters, Infografías)
+                5. RECURSOS Y ANEXOS (PDF, Pósters, Infografías)
               </h2>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">

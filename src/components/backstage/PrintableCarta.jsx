@@ -2,6 +2,7 @@ import React from 'react';
 import { LogoImage } from '../common/LogoImage';
 import { getDimensionById, getSubdimensionById } from '../../constants/esaCatalog';
 import { getPepsalAreaById, getPepsalRetoById } from '../../constants/pepsalCatalog';
+import { PrintablePlantaFisica } from './PrintablePlantaFisica';
 
 /**
  * Vista de impresión dedicada para Carta Descriptiva (Hoja Carta / @media print).
@@ -67,6 +68,7 @@ export function PrintableCarta({ carta }) {
             </td>
             <td className="border border-slate-400 px-2.5 py-1.5">
               {carta.date}
+              {carta.endDate && carta.endDate > carta.date ? ` al ${carta.endDate}` : ''}
               {carta.startTime ? ` (${carta.startTime} - ${carta.endTime || ''})` : ''}
             </td>
           </tr>
@@ -197,6 +199,31 @@ export function PrintableCarta({ carta }) {
           </div>
         </div>
       </div>
+
+      {/* Hoja 2 automática: Solicitud de Planta Física (si la actividad la requiere) */}
+      {carta.plantaFisica && carta.plantaFisica.enabled !== false && (
+        <PrintablePlantaFisica
+          embedded
+          solicitud={{
+            plantel: carta.plantaFisica.plantel || carta.plantel,
+            customPlantel: carta.plantaFisica.customPlantel || carta.customPlantel || '',
+            date:
+              carta.plantaFisica.date ||
+              (carta.endDate && carta.endDate > carta.date
+                ? `${carta.date} al ${carta.endDate}`
+                : carta.date || ''),
+            manager:
+              carta.plantaFisica.manager || carta.responsibleName || carta.designer || '',
+            location: carta.plantaFisica.location || carta.location || '',
+            reason: carta.plantaFisica.reason || carta.name || '',
+            time:
+              carta.plantaFisica.time ||
+              [carta.startTime, carta.endTime].filter(Boolean).join(' - '),
+            items: carta.plantaFisica.items || [],
+            notes: carta.plantaFisica.notes || '',
+          }}
+        />
+      )}
     </div>
   );
 }

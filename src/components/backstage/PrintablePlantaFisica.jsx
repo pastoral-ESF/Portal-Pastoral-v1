@@ -5,7 +5,7 @@ import { LogoImage } from '../common/LogoImage';
  * Vista de impresión dedicada para "Solicitud de eventos Planta Física" (Hoja Carta / @media print).
  * Maquetación fiel al formato oficial de ESFER Salesianos Chihuahua.
  */
-export function PrintablePlantaFisica({ solicitud }) {
+export function PrintablePlantaFisica({ solicitud, embedded = false }) {
   if (!solicitud) return null;
 
   const displayPlantel =
@@ -18,7 +18,10 @@ export function PrintablePlantaFisica({ solicitud }) {
   const extraBlankRows = Math.max(0, 9 - items.length);
 
   return (
-    <div className="print-only bg-white text-slate-900 text-[12px] leading-snug">
+    <div
+      className={`${embedded ? '' : 'print-only '}bg-white text-slate-900 text-[12px] leading-snug`}
+      style={embedded ? { pageBreakBefore: 'always', breakBefore: 'page' } : undefined}
+    >
       <table className="w-full border-collapse border border-slate-800">
         <tbody>
           {/* Encabezado de 3 columnas con ambos logos */}

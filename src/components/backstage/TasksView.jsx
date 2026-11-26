@@ -109,7 +109,7 @@ export function TasksView({
     priority: 'Media',
     dueDate: '',
     linkedEventId: '',
-    assignedToUid: '',
+    assignedToUids: [],
   });
 
   // Cargar lista de usuarios del equipo para que SDB / Coordinador puedan asignar pendientes
@@ -151,11 +151,24 @@ export function TasksView({
   const isTaskAssignedToMe = (t) => {
     const myUid = currentUser?.uid || '';
     const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    const myName = (currentUser?.name || '').trim().toLowerCase();
+    if (Array.isArray(t.assignees) && t.assignees.length > 0) {
+      return t.assignees.some(
+        (a) =>
+          (myUid && a.uid === myUid) ||
+          (myEmail && (a.email || '').trim().toLowerCase() === myEmail) ||
+          (myName && (a.name || '').trim().toLowerCase() === myName)
+      );
+    }
     return (
       (myUid && t.assignedToUid === myUid) ||
       (myEmail && (t.assignedToEmail || '').trim().toLowerCase() === myEmail)
     );
   };
+
+  const hasTaskAnyAssignee = (t) =>
+    (Array.isArray(t.assignees) && t.assignees.length > 0) ||
+    Boolean(t.assignedToUid || t.assignedToEmail || t.assignedToName);
 
   // Visibilidad por rol y usuario:
   // - SDB / Coordinador: ven sus propios pendientes, los asignados a ellos y los del equipo por plantel
@@ -166,7 +179,7 @@ export function TasksView({
     return tasks.filter((t) => {
       const isMine = isTaskMine(t);
       const isAssignedToMe = isTaskAssignedToMe(t);
-      const hasSpecificAssignee = Boolean(t.assignedToUid || t.assignedToEmail);
+      const hasSpecificAssignee = hasTaskAnyAssignee(t);
 
       if (isFullAdmin) {
         if (
@@ -197,7 +210,7 @@ export function TasksView({
           return isTaskAssignedToMe(t);
         }
         if (scopeFilter === 'asignados-equipo') {
-          return Boolean(t.assignedToUid || t.assignedToEmail) && !isTaskAssignedToMe(t);
+          return hasTaskAnyAssignee(t) && !isTaskAssignedToMe(t);
         }
         return scopeFilter === 'todos' ? true : t.scope === scopeFilter;
       })
@@ -208,7 +221,15 @@ export function TasksView({
       .filter((t) => {
         if (!isFullAdmin || adminUserFilter === 'Todos') return true;
         const target = adminUserFilter.toLowerCase();
+        const matchesAssignees =
+          Array.isArray(t.assignees) &&
+          t.assignees.some(
+            (a) =>
+              a.uid === adminUserFilter ||
+              (a.email || '').trim().toLowerCase() === target
+          );
         return (
+          matchesAssignees ||
           t.assignedToUid === adminUserFilter ||
           (t.assignedToEmail || '').trim().toLowerCase() === target ||
           t.ownerUid === adminUserFilter ||
@@ -263,6 +284,12 @@ export function TasksView({
 
   const startEditingTask = (task) => {
     setEditingTaskId(task.id);
+    const existingUids =
+      Array.isArray(task.assignees) && task.assignees.length > 0
+        ? task.assignees.map((a) => a.uid).filter(Boolean)
+        : task.assignedToUid
+        ? [task.assignedToUid]
+        : [];
     setForm({
       title: task.title || '',
       notes: task.notes || '',
@@ -276,7 +303,7 @@ export function TasksView({
       priority: task.priority || 'Media',
       dueDate: task.dueDate || '',
       linkedEventId: task.linkedEventId || '',
-      assignedToUid: task.assignedToUid || '',
+      assignedToUids: existingUids,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -291,7 +318,7 @@ export function TasksView({
       priority: 'Media',
       dueDate: '',
       linkedEventId: '',
-      assignedToUid: '',
+      assignedToUids: [],
     });
   };
 
@@ -300,17 +327,27 @@ export function TasksView({
     if (!form.title.trim()) return;
 
     const linkedEvent = unifiedEvents.find((ev) => ev.id === form.linkedEventId);
-    const assignedUser = teamUsers.find((u) => u.uid === form.assignedToUid);
+    const selectedAssignees = teamUsers
+      .filter((u) => (form.assignedToUids || []).includes(u.uid))
+      .map((u) => ({
+        uid: u.uid,
+        email: u.email || '',
+        name: u.name || u.email || '',
+        plantel: u.plantel || 'General',
+      }));
+    const firstAssignee = selectedAssignees[0] || null;
     const effectivePlantel =
       form.scope === 'general'
         ? 'General'
         : form.scope === 'plantel'
         ? isFullAdmin || userPlantel === 'General'
-          ? assignedUser?.plantel && assignedUser.plantel !== 'General'
-            ? assignedUser.plantel
+          ? selectedAssignees.length === 1 &&
+            firstAssignee?.plantel &&
+            firstAssignee.plantel !== 'General'
+            ? firstAssignee.plantel
             : form.plantel
           : userPlantel
-        : assignedUser?.plantel || userPlantel;
+        : firstAssignee?.plantel || userPlantel;
 
     const payload = {
       title: form.title.trim(),
@@ -319,9 +356,10 @@ export function TasksView({
       plantel: effectivePlantel,
       priority: form.priority,
       dueDate: form.dueDate,
-      assignedToUid: assignedUser?.uid || '',
-      assignedToEmail: assignedUser?.email || '',
-      assignedToName: assignedUser?.name || '',
+      assignees: selectedAssignees,
+      assignedToUid: firstAssignee?.uid || '',
+      assignedToEmail: firstAssignee?.email || '',
+      assignedToName: selectedAssignees.map((a) => a.name).join(', '),
       linkedEventId: linkedEvent?.id || '',
       linkedEventTitle: linkedEvent?.title || '',
       linkedEventDate: linkedEvent?.date || '',
@@ -348,7 +386,7 @@ export function TasksView({
       priority: 'Media',
       dueDate: '',
       linkedEventId: '',
-      assignedToUid: '',
+      assignedToUids: [],
     });
   };
 
@@ -588,35 +626,58 @@ export function TasksView({
             </div>
           </div>
 
-          {/* Asignar a un usuario específico (solo SDB y Coordinador) */}
+          {/* Asignar a uno o varios usuarios del equipo (solo SDB y Coordinador) */}
           {isFullAdmin && (
             <div>
-              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
-                Asignar a usuario del equipo (opcional)
-              </label>
-              <select
-                value={form.assignedToUid}
-                onChange={(e) => {
-                  const uid = e.target.value;
-                  const target = teamUsers.find((u) => u.uid === uid);
-                  setForm((prev) => ({
-                    ...prev,
-                    assignedToUid: uid,
-                    plantel:
-                      target?.plantel && target.plantel !== 'General'
-                        ? target.plantel
-                        : prev.plantel,
-                  }));
-                }}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:border-pastoral"
-              >
-                <option value="">— Sin asignar a una persona específica —</option>
-                {teamUsers.map((u) => (
-                  <option key={u.uid} value={u.uid}>
-                    {u.name || u.email} ({u.plantel || 'General'})
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-extrabold text-slate-700 uppercase">
+                  Asignar a responsable(s) (puedes elegir varios)
+                </label>
+                {(form.assignedToUids || []).length > 0 && (
+                  <span className="text-[11px] font-extrabold text-pastoral">
+                    {(form.assignedToUids || []).length} seleccionado(s)
+                  </span>
+                )}
+              </div>
+              {teamUsers.length === 0 ? (
+                <p className="text-xs text-slate-400">Cargando usuarios del equipo...</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {teamUsers.map((u) => {
+                    const currentUids = form.assignedToUids || [];
+                    const active = currentUids.includes(u.uid);
+                    return (
+                      <button
+                        key={u.uid}
+                        type="button"
+                        onClick={() => {
+                          const nextUids = active
+                            ? currentUids.filter((id) => id !== u.uid)
+                            : [...currentUids, u.uid];
+                          setForm((prev) => ({
+                            ...prev,
+                            assignedToUids: nextUids,
+                            plantel:
+                              nextUids.length === 1 && u.plantel && u.plantel !== 'General'
+                                ? u.plantel
+                                : prev.plantel,
+                          }));
+                        }}
+                        className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold transition-all ${
+                          active
+                            ? 'bg-pastoral text-white border-pastoral shadow-sm'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-pastoral/40'
+                        }`}
+                      >
+                        <span>{active ? '✓' : '+'}</span>
+                        <span>
+                          {u.name || u.email} ({u.plantel || 'General'})
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

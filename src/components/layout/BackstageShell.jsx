@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
   CheckSquare,
@@ -12,6 +12,8 @@ import {
   UserCog,
   Eye,
   LogOut,
+  ChevronDown,
+  Settings2,
 } from 'lucide-react';
 import { LogoImage } from '../common/LogoImage';
 import { InstallPwaButton } from '../common/InstallPwaButton';
@@ -60,7 +62,7 @@ export const BACKSTAGE_TABS = [
   },
   {
     id: 'repositorio',
-    label: 'Repositorio MJS',
+    label: 'Recursos Pastoral',
     icon: FolderHeart,
     roles: [...PASTORAL_TEAM, ROLES.ANIMADOR],
   },
@@ -96,7 +98,30 @@ export function BackstageShell({
   onToast,
   children,
 }) {
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
+        setMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const GROUPED_IDS = new Set(['pepsal', 'admin', 'editor', 'perfil']);
   const visibleTabs = BACKSTAGE_TABS.filter((t) => t.roles.includes(role));
+  const primaryTabs =
+    role === ROLES.ANIMADOR
+      ? visibleTabs
+      : visibleTabs.filter((t) => !GROUPED_IDS.has(t.id));
+  const groupedTabs =
+    role === ROLES.ANIMADOR
+      ? []
+      : visibleTabs.filter((t) => GROUPED_IDS.has(t.id));
+  const activeGroupedTab = groupedTabs.find((t) => t.id === activeTab) || null;
   const roleLabel = ROLE_LABELS[role] || 'Equipo de Pastoral';
 
   return (
@@ -167,36 +192,98 @@ export function BackstageShell({
 
         {/* Navegación interna del Backstage */}
         <div className="border-t border-white/10 bg-black/10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-2">
-            {visibleTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-2 py-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1">
+              {primaryTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onSelectTab(tab.id);
+                    }}
+                    className={`relative inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                      isActive
+                        ? 'bg-white text-pastoral-deep shadow-sm'
+                        : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{tab.label}</span>
+                    {tab.id === 'pendientes' && pendingTasksCount > 0 && (
+                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pastoral-gold text-pastoral-deep text-[10px] font-black">
+                        {pendingTasksCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Menú desplegable: PEPSAL, Avisos y Buzón, Editor Portal y Usuarios */}
+            {groupedTabs.length > 0 && (
+              <div className="relative shrink-0" ref={moreMenuRef}>
                 <button
-                  key={tab.id}
                   type="button"
-                  onClick={() => onSelectTab(tab.id)}
-                  className={`relative inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                    isActive
+                  onClick={() => setMoreMenuOpen((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                    activeGroupedTab
                       ? 'bg-white text-pastoral-deep shadow-sm'
-                      : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                      : 'bg-white/10 text-blue-100 hover:bg-white/20 hover:text-white'
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
-                  {tab.id === 'pendientes' && pendingTasksCount > 0 && (
-                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pastoral-gold text-pastoral-deep text-[10px] font-black">
-                      {pendingTasksCount}
-                    </span>
-                  )}
-                  {tab.id === 'admin' && unreadInboxCount > 0 && (
+                  <Settings2 className="h-4 w-4" />
+                  <span>{activeGroupedTab ? activeGroupedTab.label : 'Gestión'}</span>
+                  {unreadInboxCount > 0 && (
                     <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pastoral-red text-white text-[10px] font-extrabold">
                       {unreadInboxCount}
                     </span>
                   )}
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      moreMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
                 </button>
-              );
-            })}
+
+                {moreMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white border border-slate-200 shadow-xl py-1.5 z-50">
+                    {groupedTabs.map((tab) => {
+                      const Icon = tab.icon;
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => {
+                            setMoreMenuOpen(false);
+                            onSelectTab(tab.id);
+                          }}
+                          className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-xs font-bold transition-colors ${
+                            isActive
+                              ? 'bg-pastoral/10 text-pastoral-deep'
+                              : 'text-slate-700 hover:bg-slate-50 hover:text-pastoral'
+                          }`}
+                        >
+                          <span className="inline-flex items-center gap-2.5">
+                            <Icon className="h-4 w-4 text-pastoral" />
+                            <span>{tab.label}</span>
+                          </span>
+                          {tab.id === 'admin' && unreadInboxCount > 0 && (
+                            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pastoral-red text-white text-[10px] font-extrabold">
+                              {unreadInboxCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>

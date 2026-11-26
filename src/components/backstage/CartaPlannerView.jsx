@@ -17,9 +17,12 @@ import {
   Wrench,
   Copy,
   CheckSquare,
+  Paperclip,
+  UserCheck,
 } from 'lucide-react';
 import { PlantaFisicaModal } from './PlantaFisicaModal';
 import { Modal } from '../common/Modal';
+import { authService } from '../../services/authService';
 import {
   CARTA_PLANTEL_OPTIONS,
   ACTIVITY_STATUSES,
@@ -34,6 +37,14 @@ import {
   getPepsalAreaById,
 } from '../../constants/pepsalCatalog';
 
+const RESOURCE_TYPES = [
+  'PDF / Documento',
+  'Imagen / Póster',
+  'Infografía',
+  'Presentación / Carpeta',
+  'Video / Multimedia',
+];
+
 function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'Glandorff') {
   const defaultArea = getPepsalAreaById(defaultPepsalAreaId) || PEPSAL_AREAS[0];
   return {
@@ -41,11 +52,13 @@ function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'G
     plantel: defaultPlantel || 'Glandorff',
     customPlantel: '',
     date: new Date().toISOString().slice(0, 10),
+    endDate: '',
     startTime: '09:00',
     endTime: '12:00',
     name: '',
     location: '',
     designer: '',
+    responsibleName: '',
     objective: '',
     esaDimensionId: 'D3',
     esaSubdimensionId: '3.2',
@@ -59,6 +72,7 @@ function createBlankCarta(defaultPepsalAreaId = 'PEPSAL-FE', defaultPlantel = 'G
       { id: `sch-${Date.now()}-1`, time: '09:00 - 09:30', what: '', where: '', responsible: '' },
     ],
     commissions: DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` })),
+    resources: [],
   };
 }
 
@@ -79,6 +93,7 @@ function buildFormFromIntent(intent, restrictedPlantel) {
       ...base,
       name: ev.title || '',
       date: ev.date || base.date,
+      endDate: ev.endDate || '',
       startTime: ev.startTime || '09:00',
       endTime: ev.endTime || '12:00',
       location: ev.location || '',
@@ -100,6 +115,7 @@ function buildFormFromIntent(intent, restrictedPlantel) {
       Array.isArray(cloned.commissions) && cloned.commissions.length > 0
         ? cloned.commissions
         : DEFAULT_COMMISSIONS.map((c) => ({ ...c, id: `${c.id}-${Date.now()}` })),
+    resources: Array.isArray(cloned.resources) ? cloned.resources : [],
   };
 }
 
@@ -121,12 +137,22 @@ export function CartaPlannerView({
   onOpenPepsalTab,
 }) {
   const [mode, setMode] = useState(initialEditingCarta ? 'form' : 'list'); // 'list' | 'form'
+  const [statusFilter, setStatusFilter] = useState('Todas'); // 'Todas' | 'En planeación' | 'Aprobado' | 'Realizado'
+  const [plantelFilter, setPlantelFilter] = useState('Todos');
   const [plantaFisicaCarta, setPlantaFisicaCarta] = useState(null);
   const [duplicatingCarta, setDuplicatingCarta] = useState(null);
   const [targetPlanteles, setTargetPlanteles] = useState([]);
+  const [teamUsers, setTeamUsers] = useState([]);
   const [form, setForm] = useState(() =>
     buildFormFromIntent(initialEditingCarta, restrictedPlantel)
   );
+
+  useEffect(() => {
+    authService
+      .listUsers()
+      .then((list) => setTeamUsers(list || []))
+      .catch(() => setTeamUsers([]));
+  }, []);
 
   const openDuplicateModal = (carta) => {
     const corePlanteles = ['Glandorff', 'Kennedy', 'Cordilleras'];
@@ -259,6 +285,37 @@ export function CartaPlannerView({
     }));
   };
 
+  const addResourceRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      resources: [
+        ...(prev.resources || []),
+        {
+          id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          title: '',
+          type: 'PDF / Documento',
+          url: '',
+        },
+      ],
+    }));
+  };
+
+  const updateResourceRow = (index, field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      resources: (prev.resources || []).map((row, i) =>
+        i === index ? { ...row, [field]: value } : row
+      ),
+    }));
+  };
+
+  const removeResourceRow = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      resources: (prev.resources || []).filter((_, i) => i !== index),
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
@@ -267,6 +324,67 @@ export function CartaPlannerView({
   };
 
   if (mode === 'list') {
+    const plantelScoped =
+      !restrictedPlantel && plantelFilter !== 'Todos'
+        ? cartas.filter((c) => {
+            const p = c.plantel === 'Otro' && c.customPlantel ? c.customPlantel : c.plantel;
+            return p === plantelFilter;
+          })
+        : cartas;
+
+    const sortByNearestDate = (a, b) => {
+      const da = a.date || '9999-12-31';
+      const db = b.date || '9999-12-31';
+      if (da !== db) return da.localeCompare(db);
+      return (a.startTime || '').localeCompare(b.startTime || '');
+    };
+
+    const sortByMostRecentDate = (a, b) => {
+      const da = a.date || '';
+      const db = b.date || '';
+      if (da !== db) return db.localeCompare(da);
+      return (b.startTime || '').localeCompare(a.startTime || '');
+    };
+
+    const planningCartas = plantelScoped
+      .filter((c) => (c.status || 'En planeación') === 'En planeación')
+      .sort(sortByNearestDate);
+    const approvedCartas = plantelScoped
+      .filter((c) => c.status === 'Aprobado')
+      .sort(sortByNearestDate);
+    const doneCartas = plantelScoped
+      .filter((c) => c.status === 'Realizado')
+      .sort(sortByMostRecentDate);
+
+    const statusSections = [
+      {
+        status: 'En planeación',
+        title: 'En planeación (Pendientes de aprobación)',
+        dot: 'bg-amber-400',
+        badge: 'bg-amber-100 text-amber-900 border-amber-200',
+        cardClass: 'bg-white border-amber-200/90 border-l-4 border-l-amber-400 shadow-card',
+        items: planningCartas,
+      },
+      {
+        status: 'Aprobado',
+        title: 'Aprobadas (Listas para ejecutarse)',
+        dot: 'bg-emerald-500',
+        badge: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+        cardClass: 'bg-white border-emerald-200/90 border-l-4 border-l-emerald-500 shadow-card',
+        items: approvedCartas,
+      },
+      {
+        status: 'Realizado',
+        title: 'Realizadas (Histórico del ciclo)',
+        dot: 'bg-slate-400',
+        badge: 'bg-slate-200 text-slate-700 border-slate-300',
+        cardClass: 'bg-slate-50/90 border-slate-200 border-l-4 border-l-slate-400 opacity-90',
+        items: doneCartas,
+      },
+    ].filter((sec) =>
+      statusFilter === 'Todas' ? sec.items.length > 0 : sec.status === statusFilter
+    );
+
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -275,14 +393,14 @@ export function CartaPlannerView({
               Planeador de Actividades (Cartas Descriptivas)
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Formato oficial del Colegio ESFER Salesianos con vinculación ESA e impresión lista
-              para PDF.
+              Formato oficial ESFER Salesianos con vinculación ESA, PEPSAL e impresión lista para
+              PDF.
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
-              setForm(createBlankCarta());
+              setForm(createBlankCarta('PEPSAL-FE', restrictedPlantel || 'Glandorff'));
               setMode('form');
             }}
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-pastoral hover:bg-pastoral-deep text-white font-extrabold text-sm px-5 py-3 shadow-sm transition-all shrink-0"
@@ -292,14 +410,108 @@ export function CartaPlannerView({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {cartas.map((c) => {
+        {/* Barra de filtros por Estatus y Plantel */}
+        <div className="rounded-3xl bg-white border border-slate-200 p-4 shadow-card flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'Todas', label: `Todas (${plantelScoped.length})`, dot: 'bg-pastoral' },
+              {
+                id: 'En planeación',
+                label: `En planeación (${planningCartas.length})`,
+                dot: 'bg-amber-400',
+              },
+              {
+                id: 'Aprobado',
+                label: `Aprobadas (${approvedCartas.length})`,
+                dot: 'bg-emerald-500',
+              },
+              {
+                id: 'Realizado',
+                label: `Realizadas (${doneCartas.length})`,
+                dot: 'bg-slate-400',
+              },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatusFilter(tab.id)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-extrabold transition-all ${
+                  statusFilter === tab.id
+                    ? 'bg-pastoral text-white border-pastoral shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-pastoral/40'
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    statusFilter === tab.id ? 'bg-white' : tab.dot
+                  }`}
+                />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {!restrictedPlantel && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {['Todos', 'Glandorff', 'Kennedy', 'Cordilleras', 'General'].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPlantelFilter(p)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                    plantelFilter === p
+                      ? 'bg-pastoral-deep text-white border-pastoral-deep'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-pastoral/40'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {statusSections.length === 0 || statusSections.every((s) => s.items.length === 0) ? (
+          <div className="rounded-3xl bg-white border border-slate-200 p-10 text-center space-y-2">
+            <FileText className="h-10 w-10 text-slate-300 mx-auto" />
+            <h3 className="font-extrabold text-slate-800">
+              No hay Cartas Descriptivas en esta vista
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500">
+              Pulsa <strong>Nueva Carta Descriptiva</strong> o cambia el filtro de estatus/plantel.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-7">
+            {statusSections.map((sec) => (
+              <section key={sec.status} className="space-y-3">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`h-3 w-3 rounded-full ${sec.dot}`} />
+                    <h2 className="text-base sm:text-lg font-black text-slate-900">
+                      {sec.title}
+                    </h2>
+                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-0.5 text-xs font-extrabold ${sec.badge}`}
+                  >
+                    {sec.items.length} {sec.items.length === 1 ? 'carta' : 'cartas'}
+                  </span>
+                </div>
+
+                {sec.items.length === 0 ? (
+                  <div className="rounded-2xl bg-white border border-slate-200 p-6 text-center text-xs text-slate-500">
+                    No hay cartas con estatus “{sec.status}”.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {sec.items.map((c) => {
             const dim = getDimensionById(c.esaDimensionId);
             const pepsalArea = getPepsalAreaById(c.pepsalAreaId);
             return (
               <article
                 key={c.id}
-                className="rounded-3xl bg-white border border-slate-200 p-5 shadow-card flex flex-col justify-between gap-4"
+                className={`rounded-3xl border p-5 flex flex-col justify-between gap-4 transition-all ${sec.cardClass}`}
               >
                 <div className="space-y-2.5">
                   <div className="flex flex-wrap items-center gap-2">
@@ -341,11 +553,21 @@ export function CartaPlannerView({
 
                   <div className="text-xs text-slate-500 space-y-1 pt-1">
                     <div>
-                      <strong className="text-slate-700">Fecha:</strong> {c.date}{' '}
+                      <strong className="text-slate-700">Fecha:</strong> {c.date}
+                      {c.endDate && c.endDate > c.date ? ` → ${c.endDate}` : ''}{' '}
                       {c.startTime ? `(${c.startTime} - ${c.endTime || ''})` : ''}
                     </div>
                     <div>
                       <strong className="text-slate-700">Lugar:</strong> {c.location}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <UserCheck className="h-3.5 w-3.5 text-pastoral shrink-0" />
+                      <span>
+                        <strong className="text-slate-700">Responsable:</strong>{' '}
+                        <span className="font-bold text-pastoral-deep">
+                          {c.responsibleName || c.designer || 'Sin asignar'}
+                        </span>
+                      </span>
                     </div>
                     <div>
                       <strong className="text-slate-700">ESA:</strong>{' '}
@@ -357,6 +579,31 @@ export function CartaPlannerView({
                       {c.pepsalObjective ? ` · ${c.pepsalObjective}` : ''}
                     </div>
                   </div>
+
+                  {/* Recursos / Anexos con acceso en 1 clic */}
+                  {Array.isArray(c.resources) &&
+                    c.resources.filter((r) => (r.url || '').trim()).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                        {c.resources
+                          .filter((r) => (r.url || '').trim())
+                          .map((r, rIdx) => (
+                            <a
+                              key={r.id || rIdx}
+                              href={r.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-full bg-pastoral/10 hover:bg-pastoral text-pastoral hover:text-white border border-pastoral/20 px-3 py-1 text-[11px] font-bold transition-colors"
+                              title={`Abrir ${r.type || 'recurso'}: ${r.url}`}
+                            >
+                              <Paperclip className="h-3 w-3 shrink-0" />
+                              <span className="truncate max-w-[200px]">
+                                {r.title || r.type || 'Recurso'}
+                              </span>
+                              <ExternalLink className="h-3 w-3 shrink-0 opacity-75" />
+                            </a>
+                          ))}
+                      </div>
+                    )}
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
@@ -364,7 +611,7 @@ export function CartaPlannerView({
                     <button
                       type="button"
                       onClick={() => {
-                        setForm(structuredClone(c));
+                        setForm(buildFormFromIntent(c, restrictedPlantel));
                         setMode('form');
                       }}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 px-3 py-1.5 text-xs font-bold transition-colors"
@@ -380,6 +627,17 @@ export function CartaPlannerView({
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Aprobar Carta
+                      </button>
+                    )}
+                    {c.status === 'Aprobado' && (
+                      <button
+                        type="button"
+                        onClick={() => onSaveCarta({ ...c, status: 'Realizado' })}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 text-xs font-extrabold transition-colors shadow-sm"
+                        title="Marcar esta actividad como ya realizada / desarrollada"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Marcar Realizada
                       </button>
                     )}
                     <button
@@ -478,7 +736,12 @@ export function CartaPlannerView({
               </article>
             );
           })}
-        </div>
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
 
         <PlantaFisicaModal
           open={Boolean(plantaFisicaCarta)}
@@ -680,17 +943,38 @@ export function CartaPlannerView({
             )}
           </div>
 
-          <div>
-            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
-              Fecha de la experiencia *
-            </label>
-            <input
-              type="date"
-              required
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30 focus:border-pastoral"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Fecha inicio *
+              </label>
+              <input
+                type="date"
+                required
+                value={form.date}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    date: e.target.value,
+                    endDate:
+                      prev.endDate && prev.endDate < e.target.value ? e.target.value : prev.endDate,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30 focus:border-pastoral"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Fecha fin (opcional)
+              </label>
+              <input
+                type="date"
+                min={form.date || undefined}
+                value={form.endDate || ''}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30 focus:border-pastoral"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -749,7 +1033,7 @@ export function CartaPlannerView({
             />
           </div>
 
-          <div className="md:col-span-2">
+          <div className="md:col-span-1">
             <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
               Diseña la experiencia *
             </label>
@@ -761,6 +1045,34 @@ export function CartaPlannerView({
               placeholder="Nombre del responsable o equipo pastoral"
               className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30"
             />
+          </div>
+
+          <div className="md:col-span-1">
+            <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+              Responsable de seguimiento y edición
+            </label>
+            {teamUsers.length > 0 ? (
+              <select
+                value={form.responsibleName || ''}
+                onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pastoral/30"
+              >
+                <option value="">Usar quien diseñó / Sin asignar</option>
+                {teamUsers.map((u) => (
+                  <option key={u.uid || u.email} value={u.name}>
+                    {u.name} ({u.plantel || 'General'})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={form.responsibleName || ''}
+                onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}
+                placeholder="Nombre del agente o coordinador responsable"
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pastoral/30"
+              />
+            )}
           </div>
 
           <div className="md:col-span-2 lg:col-span-3">
@@ -1115,6 +1427,100 @@ export function CartaPlannerView({
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* 4. RECURSOS Y ANEXOS (Google Drive, Canva, PDF, Pósters, Infografías) */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-5 sm:p-6 shadow-card space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Paperclip className="h-5 w-5 text-pastoral" />
+              <h2 className="text-base font-extrabold text-slate-900">
+                4. RECURSOS Y ANEXOS (PDF, Pósters, Infografías)
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Adjunta enlaces de Google Drive, Canva o OneDrive (sin límite de peso).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addResourceRow}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-pastoral/10 hover:bg-pastoral text-pastoral hover:text-white px-3.5 py-2 text-xs font-extrabold transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Agregar recurso</span>
+          </button>
+        </div>
+
+        {(form.resources || []).length === 0 ? (
+          <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-300 p-5 text-center text-xs text-slate-500">
+            Aún no has adjuntado recursos. Pulsa <strong>Agregar recurso</strong> para ligar un
+            PDF, póster, infografía o carpeta de Drive a esta Carta Descriptiva.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {(form.resources || []).map((res, idx) => (
+              <div
+                key={res.id || idx}
+                className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center rounded-2xl bg-slate-50 border border-slate-200 p-3"
+              >
+                <div className="md:col-span-4">
+                  <input
+                    type="text"
+                    value={res.title}
+                    onChange={(e) => updateResourceRow(idx, 'title', e.target.value)}
+                    placeholder="Nombre (ej. Póster oficial / Guion PDF)"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold focus:outline-none focus:border-pastoral"
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <select
+                    value={res.type || 'PDF / Documento'}
+                    onChange={(e) => updateResourceRow(idx, 'type', e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-pastoral"
+                  >
+                    {RESOURCE_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-4">
+                  <input
+                    type="url"
+                    value={res.url}
+                    onChange={(e) => updateResourceRow(idx, 'url', e.target.value)}
+                    placeholder="https://drive.google.com/... o https://canva.com/..."
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:border-pastoral"
+                  />
+                </div>
+                <div className="md:col-span-1 flex items-center justify-end gap-1">
+                  {res.url && (
+                    <a
+                      href={res.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 rounded-lg text-pastoral hover:bg-pastoral/10"
+                      title="Abrir enlace"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeResourceRow(idx)}
+                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                    aria-label="Eliminar recurso"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </form>
   );

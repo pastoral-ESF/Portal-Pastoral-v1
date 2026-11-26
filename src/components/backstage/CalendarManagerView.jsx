@@ -81,7 +81,8 @@ function isPastEvent(ev, todayIso) {
 const BLANK_EVENT = {
   id: null,
   title: '',
-  date: new Date().toISOString().slice(0, 10),
+  date: getLocalTodayIso(),
+  endDate: '',
   startTime: '10:00',
   endTime: '11:30',
   plantel: 'Glandorff',
@@ -138,21 +139,24 @@ export function CalendarManagerView({
     setForm({
       ...BLANK_EVENT,
       plantel: restrictedPlantel || 'Glandorff',
-      date: new Date().toISOString().slice(0, 10),
+      date: getLocalTodayIso(),
+      endDate: '',
     });
     setModalOpen(true);
   };
 
   const openEdit = (quickEvent) => {
     setSelectedEvent(null);
-    setForm({ ...quickEvent });
+    setForm({ ...quickEvent, endDate: quickEvent.endDate || '' });
     setModalOpen(true);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
-    onSaveQuickEvent(form);
+    const cleanEndDate =
+      form.endDate && form.endDate >= form.date ? form.endDate : '';
+    onSaveQuickEvent({ ...form, endDate: cleanEndDate });
     setModalOpen(false);
   };
 
@@ -610,6 +614,7 @@ export function CalendarManagerView({
                     )}
                     <span className={`text-xs font-extrabold ${past ? 'text-slate-500' : 'text-pastoral'}`}>
                       {ev.date}
+                      {ev.endDate && ev.endDate > ev.date ? ` → ${ev.endDate}` : ''}
                     </span>
                     <span
                       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
@@ -921,7 +926,11 @@ export function CalendarManagerView({
                     >
                       <div className={`text-xs font-bold ${past ? 'text-slate-400' : 'text-pastoral'}`}>
                         {past ? 'Pasado · ' : ''}
-                        {formatHumanDate(ev.date)} · {ev.startTime || '09:00'} · {ev.plantel} ·{' '}
+                        {formatHumanDate(ev.date)}
+                        {ev.endDate && ev.endDate > ev.date
+                          ? ` al ${formatHumanDate(ev.endDate)}`
+                          : ''}{' '}
+                        · {ev.startTime || '09:00'} · {ev.plantel} ·{' '}
                         {ev.visibility === 'publico' ? 'Público' : 'Interno'}
                       </div>
                       <div className={`font-extrabold text-sm ${past ? 'text-slate-500' : 'text-slate-900'}`}>
@@ -1097,19 +1106,41 @@ export function CalendarManagerView({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
-                Fecha *
+                Fecha inicio *
               </label>
               <input
                 type="date"
                 required
                 value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    date: e.target.value,
+                    endDate:
+                      prev.endDate && prev.endDate < e.target.value ? e.target.value : prev.endDate,
+                  }))
+                }
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
               />
             </div>
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
+                Fecha fin (si dura más de 1 día)
+              </label>
+              <input
+                type="date"
+                min={form.date || undefined}
+                value={form.endDate || ''}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-extrabold text-slate-700 uppercase mb-1">
                 Hora inicio

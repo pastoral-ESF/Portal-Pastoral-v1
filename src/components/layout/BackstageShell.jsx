@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { LogoImage } from '../common/LogoImage';
 import { InstallPwaButton } from '../common/InstallPwaButton';
+import { PushSubscribeButton } from '../common/PushSubscribeButton';
 import { ROLES, ROLE_LABELS } from '../../constants/config';
 
 const PASTORAL_TEAM = [ROLES.SDB, ROLES.COORDINADOR, ROLES.AUXILIAR];
@@ -92,6 +93,7 @@ export function BackstageShell({
   onLogout,
   unreadInboxCount,
   pendingTasksCount = 0,
+  onToast,
   children,
 }) {
   const visibleTabs = BACKSTAGE_TABS.filter((t) => t.roles.includes(role));
@@ -137,6 +139,7 @@ export function BackstageShell({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <PushSubscribeButton currentUser={currentUser} onToast={onToast} />
             <div className="hidden md:block">
               <InstallPwaButton variant="dark" />
             </div>

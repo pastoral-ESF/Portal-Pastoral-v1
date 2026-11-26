@@ -12,12 +12,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 );
 
-// Registrar Service Worker para habilitar instalación PWA (PC, Android y tablets)
+// Registrar Service Worker unificado (OneSignal Push + PWA instalación)
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    const swUrl = `${import.meta.env.BASE_URL || './'}sw.js`;
+    const swUrl = `${import.meta.env.BASE_URL || './'}OneSignalSDKWorker.js`;
     navigator.serviceWorker.register(swUrl).catch((err) => {
-      console.warn('No se pudo registrar el Service Worker PWA:', err);
+      console.warn('No se pudo registrar el Service Worker unificado:', err);
     });
   });
 }

@@ -455,6 +455,7 @@ export function buildUnifiedCalendarEvents(db, { onlyPublic = false } = {}) {
     linkedQuickEventId: c.linkedQuickEventId || '',
     title: c.name,
     date: c.date,
+    endDate: c.endDate || '',
     startTime: c.startTime || '09:00',
     endTime: c.endTime || '12:00',
     plantel: c.plantel === 'Otro' && c.customPlantel ? c.customPlantel : c.plantel,

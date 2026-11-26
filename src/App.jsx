@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ROLES, isFullAdminRole, isPastoralTeamRole } from './constants/config';
 import { storageService, buildUnifiedCalendarEvents } from './services/storageService';
 import { authService } from './services/authService';
+import { pushService } from './services/pushService';
 import { NOTION_CALENDAR_2026_2027 } from './data/notionCalendar2026';
 import { ToastContainer } from './components/common/ToastContainer';
 import { PublicHeader } from './components/layout/PublicHeader';
@@ -90,6 +91,7 @@ export default function App() {
     const unsubAuth = authService.subscribe((user) => {
       if (user) {
         setCurrentUser(user);
+        pushService.syncUserTags(user).catch(() => {});
         setBackstageTab((prev) =>
           user.role === ROLES.ANIMADOR ? 'repositorio' : prev || 'dashboard'
         );
@@ -174,14 +176,17 @@ export default function App() {
 
   const pendingTasksCount = useMemo(() => {
     const userPlantel = currentUser?.plantel || 'General';
+    const myUid = currentUser?.uid || '';
+    const myEmail = (currentUser?.email || '').trim().toLowerCase();
     return (db.tasks || []).filter((t) => {
       if (t.done) return false;
       const isMine =
-        t.ownerUid === currentUser?.uid ||
-        (t.ownerEmail && t.ownerEmail === currentUser?.email);
+        (myUid && t.ownerUid === myUid) ||
+        (myEmail && (t.ownerEmail || '').trim().toLowerCase() === myEmail);
       const isAssignedToMe =
-        (t.assignedToUid && t.assignedToUid === currentUser?.uid) ||
-        (t.assignedToEmail && t.assignedToEmail === currentUser?.email);
+        (myUid && t.assignedToUid === myUid) ||
+        (myEmail && (t.assignedToEmail || '').trim().toLowerCase() === myEmail);
+      const hasSpecificAssignee = Boolean(t.assignedToUid || t.assignedToEmail);
 
       if (isFullAdmin) {
         if (
@@ -196,6 +201,7 @@ export default function App() {
       }
 
       if (isMine || isAssignedToMe) return true;
+      if (hasSpecificAssignee) return false;
       if (t.scope === 'plantel') return t.plantel === userPlantel;
       if (t.scope === 'general') return true;
       return false;
@@ -521,6 +527,7 @@ export default function App() {
             onLogout={handleLogout}
             unreadInboxCount={unreadInboxCount}
             pendingTasksCount={pendingTasksCount}
+            onToast={addToast}
           >
             {backstageTab === 'dashboard' && isPastoralTeam && (
               <DashboardView

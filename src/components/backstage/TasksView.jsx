@@ -94,8 +94,9 @@ export function TasksView({
     }
   });
 
-  const [scopeFilter, setScopeFilter] = useState('todos'); // 'todos' | 'personal' | 'plantel' | 'general' | 'asignados'
+  const [scopeFilter, setScopeFilter] = useState('todos'); // 'todos' | 'asignados' | 'asignados-equipo' | 'personal' | 'plantel' | 'general'
   const [adminPlantelFilter, setAdminPlantelFilter] = useState('Todos');
+  const [adminUserFilter, setAdminUserFilter] = useState('Todos'); // 'Todos' | user uid/email
   const [sortBy, setSortBy] = useState('dueDate'); // 'dueDate' | 'priority' | 'recent'
   const [showCompleted, setShowCompleted] = useState(true);
   const [teamUsers, setTeamUsers] = useState([]);
@@ -138,19 +139,34 @@ export function TasksView({
     }
   }, [preselectedEvent, onClearPreselectedEvent]);
 
+  const isTaskMine = (t) => {
+    const myUid = currentUser?.uid || '';
+    const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    return (
+      (myUid && t.ownerUid === myUid) ||
+      (myEmail && (t.ownerEmail || '').trim().toLowerCase() === myEmail)
+    );
+  };
+
+  const isTaskAssignedToMe = (t) => {
+    const myUid = currentUser?.uid || '';
+    const myEmail = (currentUser?.email || '').trim().toLowerCase();
+    return (
+      (myUid && t.assignedToUid === myUid) ||
+      (myEmail && (t.assignedToEmail || '').trim().toLowerCase() === myEmail)
+    );
+  };
+
   // Visibilidad por rol y usuario:
-  // - SDB / Coordinador: ven TODOS los pendientes (incluyendo los creados por agentes de pastoral)
-  //   divididos por plantel; solo respetan la privacidad de pendientes personales de otro SDB/Coordinador.
-  // - Auxiliar / Agente de Pastoral: espacio limpio con sus propios pendientes, los asignados a él/ella,
-  //   los de su plantel y los de Pastoral General.
+  // - SDB / Coordinador: ven sus propios pendientes, los asignados a ellos y los del equipo por plantel
+  //   (respetando la privacidad de pendientes personales de otro SDB/Coordinador).
+  // - Auxiliar / Agente de Pastoral: solo ve sus propios pendientes, los asignados específicamente a él/ella,
+  //   y los de su plantel / Pastoral General que NO estén asignados a otra persona específica.
   const visibleTasks = useMemo(() => {
     return tasks.filter((t) => {
-      const isMine =
-        t.ownerUid === currentUser?.uid ||
-        (t.ownerEmail && t.ownerEmail === currentUser?.email);
-      const isAssignedToMe =
-        (t.assignedToUid && t.assignedToUid === currentUser?.uid) ||
-        (t.assignedToEmail && t.assignedToEmail === currentUser?.email);
+      const isMine = isTaskMine(t);
+      const isAssignedToMe = isTaskAssignedToMe(t);
+      const hasSpecificAssignee = Boolean(t.assignedToUid || t.assignedToEmail);
 
       if (isFullAdmin) {
         if (
@@ -165,23 +181,39 @@ export function TasksView({
       }
 
       if (isMine || isAssignedToMe) return true;
+      // Si el pendiente fue asignado a otra persona específica, no mostrarlo a otros agentes
+      if (hasSpecificAssignee) return false;
       if (t.scope === 'plantel') return t.plantel === userPlantel;
       if (t.scope === 'general') return true;
       return false;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, currentUser, userPlantel, isFullAdmin]);
 
   const filteredTasks = useMemo(() => {
     const list = visibleTasks
       .filter((t) => {
         if (scopeFilter === 'asignados') {
-          return Boolean(t.assignedToUid || t.assignedToEmail);
+          return isTaskAssignedToMe(t);
+        }
+        if (scopeFilter === 'asignados-equipo') {
+          return Boolean(t.assignedToUid || t.assignedToEmail) && !isTaskAssignedToMe(t);
         }
         return scopeFilter === 'todos' ? true : t.scope === scopeFilter;
       })
       .filter((t) => {
         if (!isFullAdmin || adminPlantelFilter === 'Todos') return true;
         return (t.plantel || 'General') === adminPlantelFilter;
+      })
+      .filter((t) => {
+        if (!isFullAdmin || adminUserFilter === 'Todos') return true;
+        const target = adminUserFilter.toLowerCase();
+        return (
+          t.assignedToUid === adminUserFilter ||
+          (t.assignedToEmail || '').trim().toLowerCase() === target ||
+          t.ownerUid === adminUserFilter ||
+          (t.ownerEmail || '').trim().toLowerCase() === target
+        );
       })
       .filter((t) => (showCompleted ? true : !t.done));
 
@@ -211,7 +243,8 @@ export function TasksView({
       if (pw !== 0) return pw;
       return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
-  }, [visibleTasks, scopeFilter, adminPlantelFilter, isFullAdmin, showCompleted, sortBy]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTasks, scopeFilter, adminPlantelFilter, adminUserFilter, isFullAdmin, showCompleted, sortBy, currentUser]);
 
   // Agrupación por plantel (solo para SDB / Coordinador)
   const adminGroupedByPlantel = useMemo(() => {
@@ -689,10 +722,10 @@ export function TasksView({
           {/* Filtro por Plantel (exclusivo para SDB / Coordinador) */}
           {isFullAdmin && (
             <div className="rounded-2xl bg-white border border-slate-200 p-3 shadow-card flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
-                Supervisión por Plantel:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
+                  Supervisión:
+                </span>
                 {['Todos', ...PLANTELES].map((p) => (
                   <button
                     key={p}
@@ -708,6 +741,21 @@ export function TasksView({
                   </button>
                 ))}
               </div>
+              {teamUsers.length > 0 && (
+                <select
+                  value={adminUserFilter}
+                  onChange={(e) => setAdminUserFilter(e.target.value)}
+                  aria-label="Filtrar por usuario"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:border-pastoral"
+                >
+                  <option value="Todos">Usuario: Todos</option>
+                  {teamUsers.map((u) => (
+                    <option key={u.uid || u.email} value={u.uid || u.email}>
+                      {u.name} ({u.plantel || 'General'})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 
@@ -716,7 +764,10 @@ export function TasksView({
             <div className="flex flex-wrap gap-1.5">
               {[
                 { id: 'todos', label: 'Todos' },
-                { id: 'asignados', label: 'Asignados' },
+                { id: 'asignados', label: 'Asignados a mí' },
+                ...(isFullAdmin
+                  ? [{ id: 'asignados-equipo', label: 'Asignados al equipo' }]
+                  : []),
                 { id: 'personal', label: 'Personales' },
                 { id: 'plantel', label: isFullAdmin ? 'Por Plantel' : 'Mi Plantel' },
                 { id: 'general', label: 'Pastoral General' },
